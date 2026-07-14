@@ -9,7 +9,7 @@
 # --- Usage function ---
 usage() {
   cat <<EOF
-This script creates a filtered VCF file from a BAM file for genome, exome or targeted sequencing.
+This script creates a filtered germline VCF file from a BAM file for genome, exome or targeted sequencing.
 
 Usage: sbatch [-c <num_cpus>] [-o <logfile_path>] varwolf.sh -I <input.bam> -O <out_dir> -S <sample> -R <ref.fa> [-L <intervals.bed>] ...
 
