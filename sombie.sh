@@ -133,7 +133,7 @@ fi
 
 # --- Start script ---
 # Create output directories
-mkdir -p "${OUTPUT_DIR}/vcfs"
+mkdir -p "${OUTPUT_DIR}/vcfs/metrics"
 
 # Initiate conda environment
 set +u
@@ -154,7 +154,7 @@ if [[ -z "$NORMAL_SAMPLE" ]]; then
 fi
 echo "INFO: Tumor sample: ${TUMOR_SAMPLE} | Normal sample: ${NORMAL_SAMPLE}"
 
-PREFIX="${TUMOR_SAMPLE}_vs_${NORMAL_SAMPLE}"
+PREFIX="${TUMOR_SAMPLE}"
 
 # Build optional Mutect2 argument string
 MUTECT_EXTRA_ARGS=()
