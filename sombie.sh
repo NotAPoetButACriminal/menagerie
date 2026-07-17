@@ -380,10 +380,12 @@ mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"
 
 
 rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
-      ${OUTPUT_DIR}/vcfs/${PREFIX}_somatic_raw_merged.vcf.gz* \
-      ${OUTPUT_DIR}/vcfs/${PREFIX}_somatic_raw.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_tumor_pileups.table \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt
 
 echo "SUCCESS"
