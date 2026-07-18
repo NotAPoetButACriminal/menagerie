@@ -41,6 +41,11 @@ Optional flags:
                              Higher values make it harder to reject a candidate based on normal-sample evidence (more permissive toward calling somatic).
   --disable-mate-filter      Disable MateOnSameContigOrNoMappedMateReadFilter, retaining read pairs whose mate maps to a different contig.
                              Useful for capturing evidence near translocation breakpoints; adds noise.
+  --filter-alignment-artifacts  Run FilterAlignmentArtifacts. Significantly slows down performance.
+  --custom-bwa-index-image   Path to a custom bwa index image.
+  --min-depth <int>          Filter variants whose tumor total depth is below this threshold.
+  --min-alt-reads <int>      Filter variants whose tumor ALT allele count is below this threshold.
+  --min-vaf                  Filter sites below a certain VAF in the tumor (value range from 0 to 1, eg. 0.10 for 10%)
   --blacklist-filter         Filter variants overlapping the Encode blacklist region file.
   --custom-blacklist <file>  Path to a custom BED file of blacklist/low-complexity regions.
 
@@ -53,7 +58,7 @@ EOF
 DEFAULT_PON="/lustre/imgge/lab01/refs/db/hg38/gatk_1000g_pon.hg38.vcf.gz"
 DEFAULT_GERMLINE="/lustre/imgge/lab01/refs/db/hg38/gatk_af-only-gnomad.hg38.vcf.gz"
 DEFAULT_COMMON="/lustre/imgge/lab01/refs/db/hg38/gatk_af-only-gnomad-common-biallelic.vcf.gz"
-DEFAULT_BWA_INDEX_IMAGE="/lustre/imgge/lab01/refs/hg38_GIAB.fasta.img"
+DEFAULT_BWA_INDEX_IMAGE="/lustre/imgge/lab01/refs/hg38_gatk/hg38.fasta.img"
 DEFAULT_BLACKLIST="/lustre/imgge/lab01/refs/db/hg38/hg38_blacklist.v2.bed.gz"
 
 # --- Initial check ---
@@ -76,11 +81,14 @@ PON="${DEFAULT_PON}"
 GERMLINE_RESOURCE="${DEFAULT_GERMLINE}"
 CONTAM_RESOURCE="${DEFAULT_COMMON}"
 BWA_INDEX_IMAGE="${DEFAULT_BWA_INDEX_IMAGE}"
+RUN_ALIGNMENT_ARTIFACTS=false
 BLACKLIST_FILE="${DEFAULT_BLACKLIST}"
 GENOTYPE_PON=false
 GENOTYPE_GERMLINE=false
 NORMAL_LOD=""
 DISABLE_MATE_FILTER=false
+MIN_DEPTH=""
+MIN_ALT_READS=""
 MIN_VAF=""
 RUN_BLACKLIST=false
 SINGLETHREAD_MODE=false
@@ -96,6 +104,7 @@ while [[ $# -gt 0 ]]; do
     --custom-pon) PON="$2"; shift 2 ;;
     --custom-common) CONTAM_RESOURCE="$2"; shift 2 ;;
     --custom-bwa-index-image) BWA_INDEX_IMAGE="$2"; shift 2 ;;
+    --filter-alignment-artifacts) RUN_ALIGNMENT_ARTIFACTS=true; shift ;;
     -S) TUMOR_SAMPLE="$2"; shift 2 ;;
     -NS) NORMAL_SAMPLE="$2"; shift 2 ;;
     -L)
@@ -110,6 +119,8 @@ while [[ $# -gt 0 ]]; do
     --normal-lod) NORMAL_LOD="$2"; shift 2 ;;
     --disable-mate-filter) DISABLE_MATE_FILTER=true; shift ;;
     --singlethread) SINGLETHREAD_MODE=true; shift ;;
+    --min-depth) MIN_DEPTH="$2"; shift 2 ;;
+    --min-alt-reads) MIN_ALT_READS="$2"; shift 2 ;;
     --min-vaf) MIN_VAF="$2"; shift 2 ;;
     --blacklist-filter) RUN_BLACKLIST=true; shift ;;
     --custom-blacklist) BLACKLIST_FILE="$2"; shift 2 ;;
@@ -133,12 +144,20 @@ if [[ ! -f "$CONTAM_RESOURCE" ]]; then
   echo "Error: Common-SNP contamination resource not found at ${CONTAM_RESOURCE}. Provide --custom-common <file>." >&2
   exit 1
 fi
-if [[ ! -f "$BWA_INDEX_IMAGE" ]]; then
-  echo "Error: BWA index image not not found at ${BWA_INDEX_IMAGE}. Provide --custom-bwa-index-image <file>." >&2
+if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ] && [[ ! -f "$BWA_INDEX_IMAGE" ]]; then
+  echo "Error: BWA index image not found at ${BWA_INDEX_IMAGE}. Provide --custom-bwa-index-image <file>." >&2
   exit 1
 fi
 if [ "$RUN_BLACKLIST" = true ] && [[ ! -f "$BLACKLIST_FILE" ]]; then
   echo "Error: Blacklist file not found at ${BLACKLIST_FILE}. Provide --custom-blacklist <file>." >&2
+  exit 1
+fi
+if [[ -n "$MIN_DEPTH" ]] && ! [[ "$MIN_DEPTH" =~ ^[0-9]+$ ]]; then
+  echo "Error: --min-depth must be a non-negative integer (e.g. 10)." >&2
+  exit 1
+fi
+if [[ -n "$MIN_ALT_READS" ]] && ! [[ "$MIN_ALT_READS" =~ ^[0-9]+$ ]]; then
+  echo "Error: --min-alt-reads must be a non-negative integer (e.g. 3)." >&2
   exit 1
 fi
 if [[ -n "$MIN_VAF" ]] && ! [[ "$MIN_VAF" =~ ^0(\.[0-9]+)?$|^1(\.0+)?$ ]]; then
@@ -264,9 +283,10 @@ fi
 
 if [ "$TUMOR_ONLY" = false ]; then
   FIRST_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -1)
-  if [[ "$FIRST_SAMPLE" != "$TUMOR_SAMPLE" ]]; then
+  if [[ "$FIRST_SAMPLE" = "$NORMAL_SAMPLE" ]]; then
     echo "INFO: Tumor sample is not first (found '${FIRST_SAMPLE}'). Reordering sample columns (tumor first, normal second)..."
-    bcftools view -s "${TUMOR_SAMPLE},${NORMAL_SAMPLE}" \
+    TRUE_TUMOR_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -2 | tail -1)
+    bcftools view -s "${TRUE_TUMOR_SAMPLE},${NORMAL_SAMPLE}" \
       "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" \
       -O z \
       -o "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz"
@@ -334,29 +354,86 @@ gatk FilterMutectCalls \
   "${FILTER_EXTRA_ARGS[@]}" \
   -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
 echo "INFO: Finished filtering VCF!"
+
  
-echo "INFO: Running FilterAlignmentArtifacts..."
-gatk FilterAlignmentArtifacts \
-  -R "${REF}" \
-  -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
-  -I "${TUMOR_BAM}" \
-  --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
-  -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
-echo "INFO: Finished FilterAlignmentArtifacts!"
- 
-CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
- 
-if [[ -n "$MIN_VAF" ]]; then
-  echo "INFO: Tagging variants with tumor AF < ${MIN_VAF} as LowVAF in FILTER"
+if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ]; then
+  echo "INFO: Running FilterAlignmentArtifacts..."
+  if [[ "$SINGLETHREAD_MODE" = true || -n "$INTERVAL_FILE" ]]; then
+    gatk FilterAlignmentArtifacts \
+      -R "${REF}" \
+      -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
+      -I "${TUMOR_BAM}" \
+      --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
+      -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+  else
+    ARTIFACT_CHR_VCFS=()
+    for CHR in "${CHRS[@]}"; do
+      ARTIFACT_CHR_VCFS+=("-I" "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz")
+      (
+        gatk FilterAlignmentArtifacts \
+          -R "${REF}" \
+          -L "${CHR}" \
+          -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
+          -I "${TUMOR_BAM}" \
+          --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
+          -O "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz"
+        echo "INFO: Finished FilterAlignmentArtifacts for ${CHR}!"
+      ) &
+    done
+    wait
+    echo "INFO: All FilterAlignmentArtifacts chromosome jobs finished!"
+    gatk MergeVcfs \
+      "${ARTIFACT_CHR_VCFS[@]}" \
+      -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+  fi
+  echo "INFO: Finished FilterAlignmentArtifacts!"
+  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+else
+  echo "INFO: Skipping FilterAlignmentArtifacts (--filter-alignment-artifacts not set)."
+  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
+fi
+
+
+if [[ -n "$MIN_DEPTH" ]]; then
+  echo "INFO: Tagging variants with tumor total depth < ${MIN_DEPTH} as LowDepth in FILTER"
   bcftools filter \
-    -e "FORMAT/AF[0]<${MIN_VAF}" \
-    -s "LowVAF" \
+    -e "FORMAT/DP[0]<${MIN_DEPTH}" \
+    -s "LowDepth" \
     -m+ \
     "${CURRENT_VCF}" \
     -O z \
     -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter3.vcf.gz"
   tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter3.vcf.gz"
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter3.vcf.gz"
+  echo "INFO: Finished LowDepth tagging!"
+fi
+ 
+if [[ -n "$MIN_ALT_READS" ]]; then
+  echo "INFO: Tagging variants with tumor ALT read count < ${MIN_ALT_READS} as LowAltReads in FILTER"
+  bcftools filter \
+    -e "FORMAT/AD[0:1]<${MIN_ALT_READS}" \
+    -s "LowAltReads" \
+    -m+ \
+    "${CURRENT_VCF}" \
+    -O z \
+    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
+  tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
+  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
+  echo "INFO: Finished LowAltReads tagging!"
+fi
+
+
+if [[ -n "$MIN_VAF" ]]; then
+  echo "INFO: Tagging variants with tumor AF < ${MIN_VAF} as LowVAF in FILTER"
+  bcftools filter \
+    -e "FORMAT/AF[0:0]<${MIN_VAF}" \
+    -s "LowVAF" \
+    -m+ \
+    "${CURRENT_VCF}" \
+    -O z \
+    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter5.vcf.gz"
+  tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter5.vcf.gz"
+  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter5.vcf.gz"
   echo "INFO: Finished LowVAF tagging!"
 fi
  
@@ -365,15 +442,23 @@ if [ "$RUN_BLACKLIST" = true ]; then
   echo '##FILTER=<ID=Blacklist,Description="Overlaps a known blacklist/low-complexity region (ENCODE blacklist)">' > "${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt"
   bcftools annotate \
     -a "${BLACKLIST_FILE}" \
-    -h "${OUTPUT_DIR}/vcfs/${PREFIX}_blacklist_header.txt" \
-    -c CHROM,FROM,TO,+FILTER \
+    -h "${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt" \
+    -c CHROM,FROM,TO,BLACKLIST_REGION \
     "${CURRENT_VCF}" \
     -O z \
-    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
-  tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
-  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
+    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6_flagged.vcf.gz"
+  bcftools filter \
+    -e "INFO/BLACKLIST_REGION" \
+    -s "Blacklist" \
+    -m+ \
+    "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6_flagged.vcf.gz" \
+    -O z \
+    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
+  tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
+  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
   echo "INFO: Finished blacklist tagging!"
 fi
+
  
 mv "${CURRENT_VCF}" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz"
 mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"

@@ -116,7 +116,7 @@ if [[ "$SINGLETHREAD_MODE" = true || -n "$INTERVAL_FILE" ]]; then
     -R "${REF}" \
     ${INTERVALS} \
     ${HC_MODE} \
-    -ip 50 \
+    -ip 20 \
     -I "${INPUT_BAM}" \
     -O "${OUTPUT_DIR}/vcfs/${SAMPLE}${VCF_SUFFIX}"
   echo "INFO: Finished HaplotypeCaller in single-thread mode!"
