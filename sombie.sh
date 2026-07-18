@@ -41,7 +41,7 @@ Optional flags:
                              Higher values make it harder to reject a candidate based on normal-sample evidence (more permissive toward calling somatic).
   --disable-mate-filter      Disable MateOnSameContigOrNoMappedMateReadFilter, retaining read pairs whose mate maps to a different contig.
                              Useful for capturing evidence near translocation breakpoints; adds noise.
-  --filter-alignment-artifacts  Run FilterAlignmentArtifacts. Significantly slows down performance.
+  --filter-alignment         Run FilterAlignmentArtifacts. Significantly slows down performance.
   --custom-bwa-index-image   Path to a custom bwa index image.
   --min-depth <int>          Filter variants whose tumor total depth is below this threshold.
   --min-alt-reads <int>      Filter variants whose tumor ALT allele count is below this threshold.
@@ -104,7 +104,7 @@ while [[ $# -gt 0 ]]; do
     --custom-pon) PON="$2"; shift 2 ;;
     --custom-common) CONTAM_RESOURCE="$2"; shift 2 ;;
     --custom-bwa-index-image) BWA_INDEX_IMAGE="$2"; shift 2 ;;
-    --filter-alignment-artifacts) RUN_ALIGNMENT_ARTIFACTS=true; shift ;;
+    --filter-alignment) RUN_ALIGNMENT_ARTIFACTS=true; shift ;;
     -S) TUMOR_SAMPLE="$2"; shift 2 ;;
     -NS) NORMAL_SAMPLE="$2"; shift 2 ;;
     -L)
@@ -389,7 +389,7 @@ if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ]; then
   echo "INFO: Finished FilterAlignmentArtifacts!"
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
 else
-  echo "INFO: Skipping FilterAlignmentArtifacts (--filter-alignment-artifacts not set)."
+  echo "INFO: Skipping FilterAlignmentArtifacts (--filter-alignment not set)."
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
 fi
 
