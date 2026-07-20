@@ -442,27 +442,22 @@ if [ "$RUN_BLACKLIST" = true ]; then
   echo '##FILTER=<ID=Blacklist,Description="Overlaps a known blacklist/low-complexity region (ENCODE blacklist)">' > "${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt"
   bcftools annotate \
     -a "${BLACKLIST_FILE}" \
-    -h "${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt" \
-    -c CHROM,FROM,TO,BLACKLIST_REGION \
+    -c CHROM,FROM,TO \
+    --mark-sites "+BLACKLIST_REGION" \
     "${CURRENT_VCF}" \
-    -O z \
-    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6_flagged.vcf.gz"
+    -O u | \
   bcftools filter \
-    -e "INFO/BLACKLIST_REGION" \
+    -i "BLACKLIST_REGION=1" \
     -s "Blacklist" \
     -m+ \
-    "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6_flagged.vcf.gz" \
-    -O z \
-    -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
+    -O z -o "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
   tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter6.vcf.gz"
   echo "INFO: Finished blacklist tagging!"
 fi
-
  
 mv "${CURRENT_VCF}" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz"
 mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"
-
 
 rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
       ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
