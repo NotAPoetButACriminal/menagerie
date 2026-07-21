@@ -162,14 +162,13 @@ fi
 echo "INFO: Filtering VCF..."
 gatk VariantFiltration \
 	  -V "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.vcf.gz" \
-    -filter "DP < 5.0" --filter-name "DP5" \
-    -filter "QD < 2.0" --filter-name "QD2" \
-    -filter "QUAL < 30.0" --filter-name "QUAL30" \
-    -filter "SOR > 3.0" --filter-name "SOR3" \
-    -filter "FS > 60.0" --filter-name "FS60" \
-    -filter "MQ < 40.0" --filter-name "MQ40" \
-    -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
-    -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+    -filter "QD < 2.0" -filter-name "LowQuality" \
+    -filter "SOR > 3.0" -filter-name "StrandBias" \
+    -filter "MQ < 40.0" -filter-name "LowMappingQuality" \
+    -filter "vc.getGenotype(0).getDP() < 10" -filter-name "LowDepth" \
+    -filter "vc.getGenotype(0).getGQ() < 20" -filter-name "LowCallingQuality" \
+    -filter "vc.getGenotype(0).isHet() && (1.0 * vc.getGenotype(0).getAD().1 / (vc.getGenotype(0).getAD().0 + vc.getGenotype(0).getAD().1) < 0.2)" -filter-name "AllelicBalance" \
+    -filter "vc.getGenotype(0).getAD().1 < 4" -filter-name "LowAltDepth" \
     -O "${OUTPUT_DIR}/vcfs/${SAMPLE}.vcf.gz"
 echo "INFO: Finished filtering VCF!"
 

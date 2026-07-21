@@ -281,25 +281,6 @@ else
   echo "INFO: Successfully merged stats!"
 fi
 
-if [ "$TUMOR_ONLY" = false ]; then
-  FIRST_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -1)
-  if [[ "$FIRST_SAMPLE" = "$NORMAL_SAMPLE" ]]; then
-    echo "INFO: Tumor sample is not first (found '${FIRST_SAMPLE}'). Reordering sample columns (tumor first, normal second)..."
-    TRUE_TUMOR_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -2 | tail -1)
-    bcftools view -s "${TRUE_TUMOR_SAMPLE},${NORMAL_SAMPLE}" \
-      "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" \
-      -O z \
-      -o "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz"
-    mv "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz" "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
-    tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
-    echo "INFO: Finished reordering sample columns!"
-  else
-    echo "INFO: Tumor sample is already first in the VCF. Skipping reorder."
-  fi
-fi
-
-
-
 echo "INFO: Learning read orientation model from F1R2 counts..."
 gatk LearnReadOrientationModel \
   "${F1R2_ARGS[@]}" \
@@ -393,6 +374,22 @@ else
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
 fi
 
+if [ "$TUMOR_ONLY" = false ]; then
+  FIRST_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -1)
+  if [[ "$FIRST_SAMPLE" = "$NORMAL_SAMPLE" ]]; then
+    echo "INFO: Tumor sample is not first (found '${FIRST_SAMPLE}'). Reordering sample columns (tumor first, normal second)..."
+    TRUE_TUMOR_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -2 | tail -1)
+    bcftools view -s "${TRUE_TUMOR_SAMPLE},${NORMAL_SAMPLE}" \
+      "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" \
+      -O z \
+      -o "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz"
+    mv "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz" "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
+    tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
+    echo "INFO: Finished reordering sample columns!"
+  else
+    echo "INFO: Tumor sample is already first in the VCF. Skipping reorder."
+  fi
+fi
 
 if [[ -n "$MIN_DEPTH" ]]; then
   echo "INFO: Tagging variants with tumor total depth < ${MIN_DEPTH} as LowDepth in FILTER"
@@ -421,7 +418,6 @@ if [[ -n "$MIN_ALT_READS" ]]; then
   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter4.vcf.gz"
   echo "INFO: Finished LowAltReads tagging!"
 fi
-
 
 if [[ -n "$MIN_VAF" ]]; then
   echo "INFO: Tagging variants with tumor AF < ${MIN_VAF} as LowVAF in FILTER"
