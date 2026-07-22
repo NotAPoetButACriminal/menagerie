@@ -66,7 +66,7 @@ if [ "$#" -eq 0 ]; then
   usage
 fi
 
-set -euo pipefail
+set -xeuo pipefail
 
 # --- Argument Parsing ---
 TUMOR_BAM=""
@@ -375,16 +375,15 @@ else
 fi
 
 if [ "$TUMOR_ONLY" = false ]; then
-  FIRST_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -1)
+  FIRST_SAMPLE=$(bcftools query -l "${CURRENT_VCF}" | head -1)
   if [[ "$FIRST_SAMPLE" = "$NORMAL_SAMPLE" ]]; then
     echo "INFO: Tumor sample is not first (found '${FIRST_SAMPLE}'). Reordering sample columns (tumor first, normal second)..."
-    TRUE_TUMOR_SAMPLE=$(bcftools query -l "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" | head -2 | tail -1)
+    TRUE_TUMOR_SAMPLE=$(bcftools query -l "${CURRENT_VCF}" | head -2 | tail -1)
     bcftools view -s "${TRUE_TUMOR_SAMPLE},${NORMAL_SAMPLE}" \
-      "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz" \
+      "${CURRENT_VCF}" \
       -O z \
       -o "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz"
-    mv "${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz" "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
-    tabix "${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz"
+    CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz"
     echo "INFO: Finished reordering sample columns!"
   else
     echo "INFO: Tumor sample is already first in the VCF. Skipping reorder."
@@ -455,13 +454,13 @@ fi
 mv "${CURRENT_VCF}" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz"
 mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"
 
-rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
-      ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
-      ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_tumor_pileups.table \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table \
-      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt
+# rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
+#       ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
+#       ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
+#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
+#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
+#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_tumor_pileups.table \
+#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table \
+#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt
 
 echo "SUCCESS"
