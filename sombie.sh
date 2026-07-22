@@ -66,7 +66,7 @@ if [ "$#" -eq 0 ]; then
   usage
 fi
 
-set -xeuo pipefail
+set -euo pipefail
 
 # --- Argument Parsing ---
 TUMOR_BAM=""
@@ -454,13 +454,13 @@ fi
 mv "${CURRENT_VCF}" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz"
 mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"
 
-# rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
-#       ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
-#       ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
-#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
-#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
-#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_tumor_pileups.table \
-#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table \
-#       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt
+rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
+      ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_tumor_pileups.table \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_normal_pileups.table \
+      ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_blacklist_header.txt
 
 echo "SUCCESS"
