@@ -332,6 +332,7 @@ gatk FilterMutectCalls \
   --stats "${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_mutect.stats" \
   "${FILTER_EXTRA_ARGS[@]}" \
   -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
+CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
 echo "INFO: Finished filtering VCF!"
 
  
@@ -454,6 +455,7 @@ mv "${CURRENT_VCF}.tbi" "${OUTPUT_DIR}/vcfs/${PREFIX}.vcf.gz.tbi"
 
 rm -f ${OUTPUT_DIR}/vcfs/${PREFIX}_*chr* \
       ${OUTPUT_DIR}/vcfs/${PREFIX}_raw.vcf.gz* \
+      ${OUTPUT_DIR}/vcfs/${PREFIX}_reordered.vcf.gz* \
       ${OUTPUT_DIR}/vcfs/${PREFIX}_filter?.vcf.gz* \
       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_*chr* \
       ${OUTPUT_DIR}/vcfs/metrics/${PREFIX}_f1r2.tar.gz \
