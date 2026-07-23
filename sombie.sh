@@ -41,8 +41,6 @@ Optional flags:
                              Higher values make it harder to reject a candidate based on normal-sample evidence (more permissive toward calling somatic).
   --disable-mate-filter      Disable MateOnSameContigOrNoMappedMateReadFilter, retaining read pairs whose mate maps to a different contig.
                              Useful for capturing evidence near translocation breakpoints; adds noise.
-  --filter-alignment         Run FilterAlignmentArtifacts. Significantly slows down performance.
-  --custom-bwa-index-image   Path to a custom bwa index image.
   --min-depth <int>          Filter variants whose tumor total depth is below this threshold.
   --min-alt-reads <int>      Filter variants whose tumor ALT allele count is below this threshold.
   --min-vaf                  Filter sites below a certain VAF in the tumor (value range from 0 to 1, eg. 0.10 for 10%)
@@ -58,7 +56,7 @@ EOF
 DEFAULT_PON="/lustre/imgge/lab01/refs/db/hg38/gatk_1000g_pon.hg38.vcf.gz"
 DEFAULT_GERMLINE="/lustre/imgge/lab01/refs/db/hg38/gatk_af-only-gnomad.hg38.vcf.gz"
 DEFAULT_COMMON="/lustre/imgge/lab01/refs/db/hg38/gatk_af-only-gnomad-common-biallelic.vcf.gz"
-DEFAULT_BWA_INDEX_IMAGE="/lustre/imgge/lab01/refs/hg38_gatk/hg38.fasta.img"
+# DEFAULT_BWA_INDEX_IMAGE="/lustre/imgge/lab01/refs/hg38_gatk/hg38.fasta.img"
 DEFAULT_BLACKLIST="/lustre/imgge/lab01/refs/db/hg38/hg38_blacklist.v2.bed.gz"
 
 # --- Initial check ---
@@ -80,8 +78,8 @@ INTERVALS=""
 PON="${DEFAULT_PON}"
 GERMLINE_RESOURCE="${DEFAULT_GERMLINE}"
 CONTAM_RESOURCE="${DEFAULT_COMMON}"
-BWA_INDEX_IMAGE="${DEFAULT_BWA_INDEX_IMAGE}"
-RUN_ALIGNMENT_ARTIFACTS=false
+# BWA_INDEX_IMAGE="${DEFAULT_BWA_INDEX_IMAGE}"
+# RUN_ALIGNMENT_ARTIFACTS=false
 BLACKLIST_FILE="${DEFAULT_BLACKLIST}"
 GENOTYPE_PON=false
 GENOTYPE_GERMLINE=false
@@ -103,8 +101,8 @@ while [[ $# -gt 0 ]]; do
     --custom-germline) GERMLINE_RESOURCE="$2"; shift 2 ;;
     --custom-pon) PON="$2"; shift 2 ;;
     --custom-common) CONTAM_RESOURCE="$2"; shift 2 ;;
-    --custom-bwa-index-image) BWA_INDEX_IMAGE="$2"; shift 2 ;;
-    --filter-alignment) RUN_ALIGNMENT_ARTIFACTS=true; shift ;;
+    # --custom-bwa-index-image) BWA_INDEX_IMAGE="$2"; shift 2 ;;
+    # --filter-alignment) RUN_ALIGNMENT_ARTIFACTS=true; shift ;;
     -S) TUMOR_SAMPLE="$2"; shift 2 ;;
     -NS) NORMAL_SAMPLE="$2"; shift 2 ;;
     -L)
@@ -144,10 +142,10 @@ if [[ ! -f "$CONTAM_RESOURCE" ]]; then
   echo "Error: Common-SNP contamination resource not found at ${CONTAM_RESOURCE}. Provide --custom-common <file>." >&2
   exit 1
 fi
-if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ] && [[ ! -f "$BWA_INDEX_IMAGE" ]]; then
-  echo "Error: BWA index image not found at ${BWA_INDEX_IMAGE}. Provide --custom-bwa-index-image <file>." >&2
-  exit 1
-fi
+# if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ] && [[ ! -f "$BWA_INDEX_IMAGE" ]]; then
+#   echo "Error: BWA index image not found at ${BWA_INDEX_IMAGE}. Provide --custom-bwa-index-image <file>." >&2
+#   exit 1
+# fi
 if [ "$RUN_BLACKLIST" = true ] && [[ ! -f "$BLACKLIST_FILE" ]]; then
   echo "Error: Blacklist file not found at ${BLACKLIST_FILE}. Provide --custom-blacklist <file>." >&2
   exit 1
@@ -337,42 +335,42 @@ gatk FilterMutectCalls \
 echo "INFO: Finished filtering VCF!"
 
  
-if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ]; then
-  echo "INFO: Running FilterAlignmentArtifacts..."
-  if [[ "$SINGLETHREAD_MODE" = true || -n "$INTERVAL_FILE" ]]; then
-    gatk FilterAlignmentArtifacts \
-      -R "${REF}" \
-      -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
-      -I "${TUMOR_BAM}" \
-      --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
-      -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
-  else
-    ARTIFACT_CHR_VCFS=()
-    for CHR in "${CHRS[@]}"; do
-      ARTIFACT_CHR_VCFS+=("-I" "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz")
-      (
-        gatk FilterAlignmentArtifacts \
-          -R "${REF}" \
-          -L "${CHR}" \
-          -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
-          -I "${TUMOR_BAM}" \
-          --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
-          -O "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz"
-        echo "INFO: Finished FilterAlignmentArtifacts for ${CHR}!"
-      ) &
-    done
-    wait
-    echo "INFO: All FilterAlignmentArtifacts chromosome jobs finished!"
-    gatk MergeVcfs \
-      "${ARTIFACT_CHR_VCFS[@]}" \
-      -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
-  fi
-  echo "INFO: Finished FilterAlignmentArtifacts!"
-  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
-else
-  echo "INFO: Skipping FilterAlignmentArtifacts (--filter-alignment not set)."
-  CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
-fi
+# if [ "$RUN_ALIGNMENT_ARTIFACTS" = true ]; then
+#   echo "INFO: Running FilterAlignmentArtifacts..."
+#   if [[ "$SINGLETHREAD_MODE" = true || -n "$INTERVAL_FILE" ]]; then
+#     gatk FilterAlignmentArtifacts \
+#       -R "${REF}" \
+#       -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
+#       -I "${TUMOR_BAM}" \
+#       --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
+#       -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+#   else
+#     ARTIFACT_CHR_VCFS=()
+#     for CHR in "${CHRS[@]}"; do
+#       ARTIFACT_CHR_VCFS+=("-I" "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz")
+#       (
+#         gatk FilterAlignmentArtifacts \
+#           -R "${REF}" \
+#           -L "${CHR}" \
+#           -V "${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz" \
+#           -I "${TUMOR_BAM}" \
+#           --bwa-mem-index-image "${BWA_INDEX_IMAGE}" \
+#           -O "${OUTPUT_DIR}/vcfs/${PREFIX}_${CHR}_artifact.vcf.gz"
+#         echo "INFO: Finished FilterAlignmentArtifacts for ${CHR}!"
+#       ) &
+#     done
+#     wait
+#     echo "INFO: All FilterAlignmentArtifacts chromosome jobs finished!"
+#     gatk MergeVcfs \
+#       "${ARTIFACT_CHR_VCFS[@]}" \
+#       -O "${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+#   fi
+#   echo "INFO: Finished FilterAlignmentArtifacts!"
+#   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter2.vcf.gz"
+# else
+#   echo "INFO: Skipping FilterAlignmentArtifacts (--filter-alignment not set)."
+#   CURRENT_VCF="${OUTPUT_DIR}/vcfs/${PREFIX}_filter1.vcf.gz"
+# fi
 
 if [ "$TUMOR_ONLY" = false ]; then
   FIRST_SAMPLE=$(bcftools query -l "${CURRENT_VCF}" | head -1)
