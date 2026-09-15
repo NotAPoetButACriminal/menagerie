@@ -9,12 +9,12 @@ own, and each explains itself if you run it with no arguments.
 The names follow one joke: a monster with its first syllable replaced by the file format or data
 type it deals with.
 
-| Script | Monster | Takes | Produces |
-|---|---|---|---|
-| [`bampire.sh`](bampire.sh) | vampire + **BAM** | FASTQ | analysis-ready BAM |
-| [`varwolf.sh`](varwolf.sh) | werewolf + **VAR**iant | BAM | filtered germline VCF (optionally GVCF) |
-| [`sombie.sh`](sombie.sh) | zombie + **SOM**atic | tumor BAM (± matched normal) | filtered somatic VCF |
-| [`cohorc.sh`](cohorc.sh) | orc + **COHOR**t | many GVCFs | joint-genotyped cohort VCF |
+| Script | Takes | Produces |
+|---|---|---|
+| [`bampire.sh`](bampire.sh) | FASTQ | analysis-ready BAM |
+| [`varwolf.sh`](varwolf.sh) | BAM | filtered germline VCF, optionally GVCF and read counts |
+| [`sombie.sh`](sombie.sh) | tumor BAM (and matched normal) | filtered somatic VCF |
+| [`cohorc.sh`](cohorc.sh) | multiple GVCFs | joint-genotyped cohort VCF |
 
 ## How they fit together
 
@@ -38,12 +38,12 @@ The two common routes:
 # Single sample, germline
 sbatch -c 64 -o logs/SAMPLE_%x_%A.log bampire.sh -I SAMPLE_R1.fastq.gz,SAMPLE_R2.fastq.gz \
     -O /path/to/out -S SAMPLE -R /path/to/hg38.fasta
-sbatch -c 32 -o logs/SAMPLE_%x_%A.log varwolf.sh -I /path/to/out/bams/SAMPLE.bam \
+sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh -I /path/to/out/bams/SAMPLE.bam \
     -O /path/to/out -S SAMPLE -R /path/to/hg38.fasta
 
 # Cohort, joint-genotyped — note --gvcf on the per-sample step
-sbatch -c 32 -o logs/SAMPLE_%x_%A.log varwolf.sh --gvcf -I .../SAMPLE.bam -O /path/to/out -S SAMPLE -R hg38.fasta
-sbatch -c 64 -o logs/COHORT_%x_%A.log cohorc.sh -I gvcf_list.txt -O /path/to/out -C COHORT -R hg38.fasta
+sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh --gvcf -I .../SAMPLE.bam -O /path/to/out -S SAMPLE -R hg38.fasta
+sbatch -o logs/COHORT_%x_%A.log cohorc.sh -I gvcf_list.txt -O /path/to/out -C COHORT -R hg38.fasta
 ```
 
 Every script prints full usage when called with no arguments. That usage text is the authoritative
