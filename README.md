@@ -2,9 +2,7 @@
 
 A small bestiary of GATK-based sequencing pipelines for SLURM clusters.
 
-Each script is a single self-contained stage of a short-read DNA analysis workflow, written as an
-`sbatch` job. They chain together — BAM out of one is BAM into the next — but each can be run on its
-own, and each explains itself if you run it with no arguments.
+Each script is a single self-contained stage of a short-read DNA analysis workflow, written as an `sbatch` job. They chain together — the output of one is an input to the next — but each can be run on its own, and each explains itself if you run it with no arguments.
 
 The names follow one joke: a monster with its first syllable replaced by the file format or data
 type it deals with.
