@@ -87,7 +87,7 @@ mkdir -p "${OUTPUT_DIR}/bams/metrics"
 # Initiate conda environment
 set +u
 eval "$(conda shell.bash hook)"
-conda activate gatk
+conda activate menagerie
 set -u
 
 # Set aligner

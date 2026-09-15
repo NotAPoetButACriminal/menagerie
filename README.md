@@ -160,10 +160,23 @@ strategy. Do not raise it. Do lower it to `-c 2` whenever you disable per-chromo
 
 ## Requirements
 
+### Setup
+
+Every user runs this once, on the login node:
+
+```bash
+./setup.sh
+```
+
+[`setup.sh`](setup.sh) creates a conda environment named `menagerie` holding every tool the pipelines use. The solve and download take several minutes.
+
+The scripts activate the environment themselves, so you do not need to activate it before submitting a job, and you should not `module load` anything — every tool comes from conda, and mixing in module builds means running something other than what the pipelines were tested against.
+
+An environment that already exists is never overwritten. Use `--force` to rebuild it from scratch, or `--verify-only` to check an existing one without touching it.
+
+### Also required
+
 - **SLURM.** These are `sbatch` scripts and read `$SLURM_CPUS_PER_TASK`.
-- **A conda environment named `gatk`**, activated by every script, providing: GATK 4, `bwa-mem2`
-  (and `bwa`), `samtools`, `bcftools` (with the `+fill-tags` plugin), `fastp`, `tabix`, and
-  `plot-vcfstats`.
 - **A reference genome** with a `.fai`, a `.dict`, and a bwa-mem2 index alongside it.
 - **GATK hg38 resource bundles** for dbSNP, the panel of normals, gnomAD, HapMap, Omni, 1000G, Mills,
   and the ENCODE blacklist.

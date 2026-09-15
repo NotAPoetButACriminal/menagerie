@@ -208,7 +208,7 @@ mkdir -p "${OUTPUT_DIR}/gdbs"
 # Initiate conda environment
 set +u
 eval "$(conda shell.bash hook)"
-conda activate gatk
+conda activate menagerie
 set -u
 
 # --- Resolve input GVCFs ---

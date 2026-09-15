@@ -171,7 +171,7 @@ mkdir -p "${OUTPUT_DIR}/vcfs/metrics"
 # Initiate conda environment
 set +u
 eval "$(conda shell.bash hook)"
-conda activate gatk
+conda activate menagerie
 set -u
 
 # Derive sample names from BAM read groups if not provided

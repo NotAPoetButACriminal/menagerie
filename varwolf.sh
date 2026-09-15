@@ -93,7 +93,7 @@ mkdir -p "${OUTPUT_DIR}/vcfs"
 # Initiate conda environment
 set +u
 eval "$(conda shell.bash hook)"
-conda activate gatk
+conda activate menagerie
 set -u
 
 # Set HaplotypeCaller mode
