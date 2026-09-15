@@ -27,7 +27,7 @@ Optional flags:
   -S <name>      The name of the sample, used for naming output files. If not provided, it will be derived from the BAM file name.
   -L <file>      Path to a BED file with target intervals for exome or targeted sequencing.
                  This disables multi-threading so make sure to give the job 2 threads (sbatch -c 2) to not waste cpu.
-  --gvcf         Also produce a GVCF file that can be used for joint genotyping with cohortcrawler.sh
+  --gvcf         Also produce a GVCF file that can be used for joint genotyping with cohorc.sh
   --counts       Also produce a read counts HDF5 file for CNV calling with copycat.sh
   --singlethread Disable per chromosome parallelization for genome sequencing and perform variant calling on a single cpu thread.
                  This will be significantly slower but can be used when running a large number of samples in parallel (>50).
