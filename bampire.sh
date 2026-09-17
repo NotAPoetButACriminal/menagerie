@@ -80,6 +80,20 @@ if [[ -z "$REF" ]]; then echo "Error: -R <reference.fa> is a mandatory flag." >&
 THREADS=${SLURM_CPUS_PER_TASK:-8}
 DBSNP="/lustre/imgge/db/hg38/hg38.dbsnp155.vcf.gz"
 
+# Heap for the Spark steps: 75% of the SLURM allocation, leaving room for the JVM's own off-heap memory
+# and the native compression library. The Spark steps only start once alignment has finished, so
+# nothing else in the job needs the memory by then.
+if [[ -n "${SLURM_MEM_PER_NODE:-}" ]]; then
+  JAVA_MEM="$(( SLURM_MEM_PER_NODE * 75 / 100 ))m"
+elif [[ -n "${SLURM_MEM_PER_CPU:-}" ]]; then
+  JAVA_MEM="$(( SLURM_MEM_PER_CPU * THREADS * 75 / 100 ))m"
+else
+  JAVA_MEM="32G"
+fi
+# GATK's Intel compression runs in native code, which blocks garbage collection while it runs. The JVM
+# gives up after 2 retries and throws OutOfMemoryError even when memory could be freed; 100 lets it wait.
+JAVA_OPTS="-Xmx${JAVA_MEM} -XX:+UnlockDiagnosticVMOptions -XX:GCLockerRetryAllocationCount=100"
+
 # --- Start script ---
 # Create output directories
 mkdir -p "${OUTPUT_DIR}/bams/metrics"
@@ -153,7 +167,7 @@ echo "Finished mapping all reads for ${SAMPLE}!"
 
 echo "Marking duplicates for ${SAMPLE}..."
 gatk MarkDuplicatesSpark \
-  --java-options "-Xmx32G" \
+  --java-options "${JAVA_OPTS}" \
   -R "${REF}" \
   "${BAMS_PER_LANE[@]}" \
   -O "${OUTPUT_DIR}/bams/${SAMPLE}_dd.bam" \
@@ -169,7 +183,7 @@ if [ "$SKIP_BQSR" = true ]; then
 else
   echo "Recalibrating bases for ${SAMPLE}..."
   gatk BQSRPipelineSpark \
-    --java-options "-Xmx32G" \
+    --java-options "${JAVA_OPTS}" \
     -R "${REF}" \
     -I "${OUTPUT_DIR}/bams/${SAMPLE}_dd.bam" \
     -O "${OUTPUT_DIR}/bams/${SAMPLE}.bam" \

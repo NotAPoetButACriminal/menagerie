@@ -84,7 +84,7 @@ INPUT_GVCFS=""
 OUTPUT_DIR=""
 COHORT=""
 REF=""
-BUILD="hg38"
+GENOME_BUILD="hg38"
 INTERVAL_FILE=""
 INTERVALS=""
 SNP_TS="99.5"
@@ -108,7 +108,7 @@ while [[ $# -gt 0 ]]; do
     -O) OUTPUT_DIR="$2"; shift 2 ;;
     -C) COHORT="$2"; shift 2 ;;
     -R) REF="$2"; shift 2 ;;
-    --build) BUILD="$2"; shift 2 ;;
+    --build) GENOME_BUILD="$2"; shift 2 ;;
     -L)
       INTERVAL_FILE="$2"
       if [[ "${INTERVAL_FILE}" != *.bed ]]; then echo "Error: -L file must be a .bed file." >&2; usage; fi
@@ -178,7 +178,7 @@ fi
 
 # --- Resource sets ---
 # Each build carries both its VQSR resource files and its chromosome naming convention.
-case "$BUILD" in
+case "$GENOME_BUILD" in
   hg38)
     HAPMAP="/lustre/imgge/lab01/refs/db/hg38/resources_broad_hg38_v0_hapmap_3.3.hg38.vcf.gz"
     OMNI="/lustre/imgge/lab01/refs/db/hg38/resources_broad_hg38_v0_1000G_omni2.5.hg38.vcf.gz"
@@ -188,14 +188,14 @@ case "$BUILD" in
     CHRS=(chr{1..22} chrX chrY chrM)
     ;;
   *)
-    echo "Error: --build must be 'hg38'. Got '${BUILD}'." >&2
+    echo "Error: --build must be 'hg38'. Got '${GENOME_BUILD}'." >&2
     usage
     ;;
 esac
 
 for RESOURCE in "$HAPMAP" "$OMNI" "$ONEKG" "$MILLS" "$DBSNP"; do
   if [[ ! -f "$RESOURCE" ]]; then
-    echo "Error: ${BUILD} VQSR resource not found: ${RESOURCE}" >&2
+    echo "Error: ${GENOME_BUILD} VQSR resource not found: ${RESOURCE}" >&2
     exit 1
   fi
 done
