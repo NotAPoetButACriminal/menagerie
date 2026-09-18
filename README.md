@@ -13,6 +13,7 @@ type it deals with.
 | [`varwolf.sh`](varwolf.sh) | BAM | filtered germline VCF, optionally GVCF and read counts |
 | [`sombie.sh`](sombie.sh) | tumor BAM (and matched normal) | filtered somatic VCF |
 | [`cohorc.sh`](cohorc.sh) | multiple GVCFs | joint-genotyped cohort VCF |
+| [`copycat.sh`](copycat.sh) | read counts HDF5s | per-sample germline CNV VCFs |
 
 ## How they fit together
 
@@ -28,20 +29,47 @@ flowchart LR
     SOMBIE --> SOMVCF[somatic VCF]
     GVCF --> COHORC[cohorc.sh]
     COHORC --> COHORT[cohort VCF]
+    HDF5 --> COPYCAT[copycat.sh]
+    COPYCAT --> CNV[per-sample CNV VCFs]
 ```
 
-The two common routes:
+The three common routes:
 
 ```bash
 # Single sample, germline
-sbatch -c 64 -o logs/SAMPLE_%x_%A.log bampire.sh -I SAMPLE_R1.fastq.gz,SAMPLE_R2.fastq.gz \
+sbatch -c 64 -o logs/SAMPLE_%x_%A.log bampire.sh \
+    -I SAMPLE_R1.fastq.gz,SAMPLE_R2.fastq.gz \
     -O /path/to/out -S SAMPLE -R /path/to/hg38.fasta
-sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh -I /path/to/out/bams/SAMPLE.bam \
+sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh \
+    -I /path/to/out/bams/SAMPLE.bam \
     -O /path/to/out -S SAMPLE -R /path/to/hg38.fasta
 
 # Cohort, joint-genotyped — note --gvcf on the per-sample step
-sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh --gvcf -I .../SAMPLE.bam -O /path/to/out -S SAMPLE -R hg38.fasta
-sbatch -o logs/COHORT_%x_%A.log cohorc.sh -I gvcf_list.txt -O /path/to/out -C COHORT -R hg38.fasta
+sbatch -o logs/SAMPLE_%x_%A.log varwolf.sh \
+    -I .../SAMPLE.bam \
+    -O /path/to/out \
+    -S SAMPLE \
+    -R hg38.fasta \
+    --gvcf
+sbatch -o logs/COHORT_%x_%A.log cohorc.sh \
+    -I gvcf_list.txt \
+    -O /path/to/out \
+    -C COHORT \
+    -R hg38.fasta
+
+# Germline CNVs, from varwolf.sh --counts run with the same -L BED
+# First fit a model on the cohort, then call new samples against it one at a time
+sbatch -o logs/COHORT_%x_%A.log copycat.sh \
+    -I hdf5_list.txt \
+    -O /path/to/out \
+    -C COHORT \
+    -R hg38.fasta \
+    -L targets.bed
+sbatch -o logs/SAMPLE_%x_%A.log copycat.sh \
+    -I .../counts/SAMPLE.hdf5 \
+    -O /path/to/out \
+    -M /path/to/out/cnv/COHORT \
+    -R hg38.fasta
 ```
 
 Every script prints full usage when called with no arguments. That usage text is the authoritative
@@ -131,23 +159,57 @@ samples later without rebuilding from scratch.
 
 Defaults: 64 cpus, 500 GB, 3 days.
 
+### copycat.sh — read counts to germline CNV calls
+
+`gatk PreprocessIntervals` → `AnnotateIntervals` → `FilterIntervals` → `IntervalListTools` (scatter)
+→ `DetermineGermlineContigPloidy` → `GermlineCNVCaller` per shard → `PostprocessGermlineCNVCalls`
+per sample → `VariantFiltration` → final VCF cleanup.
+
+Input is the `.hdf5` read counts from `varwolf.sh --counts`, as a sample sheet with one path per
+line or comma-separated on the command line. **Pass the same `-L` BED that `varwolf.sh` was given**
+(or no `-L` for whole-genome 1 kb bins): the bins are rebuilt from it exactly the way `varwolf.sh`
+built them, so any other file gives intervals that do not line up with the counts.
+
+Two modes:
+
+- **COHORT** (`-C <cohort>`) fits a new gCNV model to the batch and calls CNVs in the same samples.
+  At least 10 samples, all sequenced and processed the same way.
+- **CASE** (`-M <out_dir>/cnv/<cohort>`) calls a single new sample against the model from an earlier
+  COHORT run, so one-off samples can be called without refitting. Intervals and shards come from the
+  model, so `-L` and `--scatters` do not apply.
+
+Outputs:
+
+- `<out_dir>/vcfs/<sample>.cnv.vcf.gz` — final calls, indexed. Segments below `--rmv-qual` (default
+  30) and reference-copy segments are dropped, segments below `--min-qual` (default 100) are tagged
+  `CNVQUAL`, and `SVTYPE=CNV` is filled in.
+- `<out_dir>/cnv/<cohort>/` — the ploidy and gCNV models, shard calls, per-interval genotypes and
+  denoised copy ratios. This is the `-M` directory for later CASE runs. A CASE run writes the same
+  files into `<out_dir>/cnv/<sample>/`.
+
+Useful flags: `--scatters` (number of interval shards run side by side, default 10), `--low-count-pct`
+(`FilterIntervals` low-count cutoff, default 65), `--overwrite` (see below), `--keep-intermediates`.
+
+Defaults: 128 cpus, 256 GB, 3 days.
+
 ## Conventions
 
-**Output layout.** All four scripts take `-O <out_dir>` and create their own subdirectories inside
+**Output layout.** All five scripts take `-O <out_dir>` and create their own subdirectories inside
 it, so a whole project can share one output root:
 
 ```
 <out_dir>/
 ├── bams/              # bampire.sh
 │   └── metrics/       #   fastp reports, duplication metrics
-├── vcfs/              # varwolf.sh, sombie.sh, cohorc.sh
+├── vcfs/              # varwolf.sh, sombie.sh, cohorc.sh, copycat.sh
 │   └── metrics/       #   bcftools stats, plot-vcfstats, contamination tables
 ├── counts/            # varwolf.sh --counts
-└── gdbs/              # cohorc.sh GenomicsDB workspaces (never auto-deleted)
+├── gdbs/              # cohorc.sh GenomicsDB workspaces (never auto-deleted)
+└── cnv/               # copycat.sh gCNV models and working files (never auto-deleted)
 ```
 
 **Intermediates are cleaned up.** Each script removes its own per-chromosome shards and staging files
-on success. `cohorc.sh --keep-intermediates` opts out.
+on success. `--keep-intermediates` on `cohorc.sh` and `copycat.sh` opts out.
 
 **Logging.** Name log files after the sample (or cohort) plus the job name and ID:
 `-o .../logs/SAMPLE_%x_%A.log`.
@@ -168,7 +230,7 @@ Every user runs this once, on the login node:
 ./setup.sh
 ```
 
-[`setup.sh`](setup.sh) creates a conda environment named `menagerie` holding every tool the pipelines use. The solve and download take several minutes.
+[`setup.sh`](setup.sh) creates a conda environment named `menagerie` holding every tool the pipelines use. The solve and download take several minutes. It also downloads the GATK release from GitHub to install `gcnvkernel`, the Python package `copycat.sh` needs, so the login node needs internet access while it runs.
 
 The scripts activate the environment themselves, so you do not need to activate it before submitting a job, and you should not `module load` anything — every tool comes from conda, and mixing in module builds means running something other than what the pipelines were tested against.
 
@@ -178,13 +240,11 @@ An environment that already exists is never overwritten. Use `--force` to rebuil
 
 - **SLURM.** These are `sbatch` scripts and read `$SLURM_CPUS_PER_TASK`.
 - **A reference genome** with a `.fai`, a `.dict`, and a bwa-mem2 index alongside it.
-- **GATK hg38 resource bundles** for dbSNP, the panel of normals, gnomAD, HapMap, Omni, 1000G, Mills,
-  and the ENCODE blacklist.
+- **GATK hg38 resource bundles** for dbSNP, the panel of normals, gnomAD, HapMap, Omni, 1000G, Mills, and the ENCODE blacklist.
 
 ### Site configuration
 
-Resource paths are currently hardcoded to this cluster and are the first thing to change when moving
-the scripts elsewhere:
+Resource paths are currently hardcoded to this cluster and are the first thing to change when moving the scripts elsewhere:
 
 | Script | Line | Path |
 |---|---|---|
@@ -196,10 +256,11 @@ the scripts elsewhere:
 set the reference FASTA, because the various hg38 subversions — with or without alt contigs — all
 work against the same resource files.
 
+`copycat.sh` has no hardcoded resource paths: its hg38 pseudoautosomal regions and ploidy priors are
+written out by the script ([323](copycat.sh#L323), [334](copycat.sh#L334)).
+
 ## Not in this repo
 
-`varwolf.sh --counts` writes a read-count HDF5 intended for `copycat.sh`, a CNV-calling stage that
-does not exist yet. The counts are still produced and are usable with GATK's germline CNV tools
-directly.
+Structural variant calling (Manta) is planned but not included yet.
 
 `refs/` and `output/` are gitignored — this repo tracks the scripts only, not data.

@@ -67,13 +67,8 @@ Optional flags:
                          pseudoautosomal regions and the contig ploidy priors, not the reference
                          FASTA, since the various hg38 subversions share both.
   --scatters <int>       Number of shards to split the intervals into for GermlineCNVCaller parallelism
-                         (default 10). The intervals left after filtering are divided into this many
-                         equal parts, whatever the panel size, and the shards run concurrently.
-                         Use --scatters 1 to skip scattering and call every interval in one job.
-  --ploidy-priors <file> Contig ploidy priors table for DetermineGermlineContigPloidy. Defaults to a
-                         standard diploid autosome table for the selected build, written into the
-                         working directory. Supply your own for non-chr contig names, or to call
-                         contigs this script skips.
+                         (default 10). Use --scatters 1 to skip scattering and call every interval in one job.
+  --ploidy-priors <file> Custom contig ploidy priors table for DetermineGermlineContigPloidy.
   --custom-par <file>    BED file of pseudoautosomal regions to exclude, overriding the build default.
   --low-count-pct <int>  FilterIntervals drops intervals with a low count in more than this
                          percentage of samples (default 65). COHORT mode only.
@@ -88,10 +83,11 @@ Optional flags:
 Output:
   <out_dir>/vcfs/<sample>.cnv.vcf.gz            Final per sample CNV calls, indexed, with SVTYPE=CNV
                                                 filled in so downstream SV tools accept them.
-  <out_dir>/vcfs/<sample>_intervals.cnv.vcf.gz  Per interval genotypes, kept for inspection.
-  <out_dir>/cnv/<cohort>/                       Ploidy and gCNV models, scattered calls and denoised
-                                                copy ratios. Never deleted unless --overwrite is given,
-                                                so it can be reused as the -M directory for later CASE runs.
+  <out_dir>/cnv/<cohort>/                       Ploidy and gCNV models, scattered calls, denoised copy
+                                                ratios and per interval genotypes (<sample>_intervals.cnv.vcf.gz).
+                                                Never deleted unless --overwrite is given, so it can be
+                                                reused as the -M directory for later CASE runs.
+                                                A CASE run writes the same files into <out_dir>/cnv/<sample>/.
 
 EOF
   exit 1
@@ -201,8 +197,7 @@ if awk -v a="$RMV_QUAL" -v b="$MIN_QUAL" 'BEGIN { exit !(a > b) }'; then
   exit 1
 fi
 
-# Validate CASE mode inputs. The layout checked for here is exactly the one a COHORT run leaves
-# behind, so a model directory is either a complete previous run or a mistake.
+# Validate model directory for CASE mode.
 CASE_MODE=false
 if [[ -n "$MODEL_DIR" ]]; then
   CASE_MODE=true
@@ -224,16 +219,9 @@ if [[ -n "$MODEL_DIR" ]]; then
 fi
 
 # --- Resolve input read counts ---
-# What -I means depends on the mode. A CASE run calls one sample, so -I is that one .hdf5 file and
-# there is nothing to resolve. A COHORT run takes many, either as a sample sheet or as a comma
-# separated list on the command line. Splitting it this way also avoids a trap: a lone .hdf5 path is
-# an existing file, so a plain existence test would read the counts themselves as a sample sheet.
-# The inputs are resolved before the run is named, because in CASE mode the name comes from the
-# sample itself.
 if [ "$CASE_MODE" = true ]; then
   if [[ "$INPUT_COUNTS" == *,* ]]; then
     echo "Error: CASE mode calls a single sample, but -I lists several files." >&2
-    echo "       Submit one job per sample, all against the same -M." >&2
     exit 1
   fi
   COUNT_PATHS=("$INPUT_COUNTS")
@@ -257,29 +245,15 @@ done
 NUM_SAMPLES=${#COUNT_PATHS[@]}
 
 # --- Sample counts and the name of this run ---
-# The two modes want opposite things from their inputs, and that settles what -C has to mean.
-#
-# COHORT mode fits a model, which needs a crowd, and -C names the model that comes out.
-#
-# CASE mode calls one sample against a model somebody else already built and named. There is no
-# cohort to name, so the run is named after the sample, the way varwolf.sh derives -S from the BAM,
-# and -C is not used at all. Several samples in CASE mode are several independent sbatch jobs
-# sharing one model, which is also how they run in parallel across nodes rather than in one job.
+
 if [ "$CASE_MODE" = false ]; then
   if [[ -z "$COHORT" ]]; then
     echo "Error: -C <cohort_name> is a mandatory flag in COHORT mode. It names the model being built." >&2
     usage
   fi
   if [ "$NUM_SAMPLES" -lt 10 ]; then
-    echo "Error: Only ${NUM_SAMPLES} read count file(s) provided. Fitting a gCNV model needs a" >&2
-    echo "       reasonably large cohort, so this script requires at least 10 samples in COHORT mode." >&2
-    echo "       To call a small number of samples, build a model from a larger batch first and then" >&2
-    echo "       rerun this script with -M." >&2
+    echo "Error: gCNV requires at least 10 samples" >&2
     exit 1
-  fi
-  if [ "$NUM_SAMPLES" -lt 30 ]; then
-    echo "WARNING: Only ${NUM_SAMPLES} samples. GATK recommends at least 30 to fit a gCNV model."
-    echo "WARNING: Expect noisy calls, especially on the sex chromosomes."
   fi
 else
   if [[ -n "$COHORT" ]]; then
@@ -289,9 +263,7 @@ else
 fi
 
 # --- Resource sets ---
-# Each build carries its pseudoautosomal regions and the contigs that get called. Both are small,
-# fixed coordinate sets, so they are written out from here rather than pointed at files on this
-# cluster that would have to be copied along with the scripts.
+
 case "$GENOME_BUILD" in
   hg38)
     ALLOSOMAL=(chrX chrY)
@@ -303,23 +275,14 @@ case "$GENOME_BUILD" in
 esac
 
 # --- Start script ---
-# Create output directories. A COHORT run's cnv directory is named after the cohort and holds the
-# model, which is never auto-deleted, the same way cohorc.sh keeps its GenomicsDB workspaces, so
-# later CASE runs can point -M at it. A CASE run is named after its one sample instead, so that
-# every sample called against a shared model keeps its own working directory and the jobs can run
-# side by side without treading on each other.
+
 if [ "$CASE_MODE" = false ]; then
   CNV_DIR="${OUTPUT_DIR}/cnv/${COHORT}"
 else
   CNV_DIR="${OUTPUT_DIR}/cnv/${SAMPLE}"
 fi
 
-# --- Earlier runs ---
-# IntervalListTools and GermlineCNVCaller never clear their output directories, so shards left behind
-# by an earlier run with the same name get picked up alongside the new ones. With a different shard
-# count that means duplicate shard numbers writing into the same directories at once, and in CASE
-# mode a stale model shard. So a directory that already holds results is refused unless --overwrite
-# says to clear it first.
+# Check earlier run overwriting
 if [ "$CASE_MODE" = true ] && [ "$(realpath -m "${CNV_DIR}")" = "$(realpath -m "${MODEL_DIR}")" ]; then
   echo "Error: This CASE run would work in ${CNV_DIR}, which is the -M model directory itself." >&2
   echo "       Use a different -O, or a sample whose name differs from the cohort name." >&2
@@ -333,14 +296,12 @@ if [ -d "${CNV_DIR}/ploidy-model" ] || [ -d "${CNV_DIR}/ploidy-calls" ] \
     exit 1
   fi
   echo "WARNING: --overwrite given. Deleting the earlier run in ${CNV_DIR}..."
-  if [ "$CASE_MODE" = false ]; then
-    echo "WARNING: Any CASE runs called against the old '${COHORT}' model will no longer match it."
-  fi
   rm -rf "${CNV_DIR}/ploidy-model" "${CNV_DIR}/ploidy-calls" \
-    "${CNV_DIR}/interval_scatters" "${CNV_DIR}/gcnvcaller_scatters" "${CNV_DIR}/jobs"
+    "${CNV_DIR}/interval_scatters" "${CNV_DIR}/gcnvcaller_scatters"
   rm -f "${CNV_DIR}/${COHORT}_bins.interval_list" "${CNV_DIR}/annotated.interval_list" \
     "${CNV_DIR}/unrestricted.interval_list" "${CNV_DIR}/filtered.interval_list" \
-    "${CNV_DIR}"/*_denoised_copy_ratios.tsv
+    "${CNV_DIR}"/*_denoised_copy_ratios.tsv \
+    "${CNV_DIR}"/*_intervals.cnv.vcf.gz "${CNV_DIR}"/*_intervals.cnv.vcf.gz.tbi
 fi
 
 mkdir -p "${OUTPUT_DIR}/vcfs"
@@ -352,9 +313,7 @@ eval "$(conda shell.bash hook)"
 conda activate menagerie
 set -u
 
-# --- Write the build resources ---
-# Pseudoautosomal regions. gCNV models chrX and chrY as haploid or diploid per sample, which the PAR
-# breaks, so these intervals are excluded from the model entirely.
+# Write PAR and CPP
 if [[ -n "$CUSTOM_PAR" ]]; then
   if [[ ! -f "$CUSTOM_PAR" ]]; then echo "Error: PAR BED file not found: ${CUSTOM_PAR}" >&2; exit 1; fi
   PAR_BED="$CUSTOM_PAR"
@@ -366,9 +325,6 @@ else
   echo "INFO: Wrote ${GENOME_BUILD} PAR intervals to ${PAR_BED}."
 fi
 
-# Contig ploidy priors. Autosomes are diploid with a little room for whole chromosome events, chrX is
-# split between one and two copies, and chrY is either absent or single copy. Contigs missing from
-# this table are not called at all, which is what keeps chrM and the alt contigs out of the model.
 if [[ -n "$PLOIDY_PRIORS" ]]; then
   if [[ ! -f "$PLOIDY_PRIORS" ]]; then echo "Error: Ploidy priors file not found: ${PLOIDY_PRIORS}" >&2; exit 1; fi
   echo "INFO: Using custom contig ploidy priors from ${PLOIDY_PRIORS}."
@@ -393,12 +349,9 @@ fi
 
 CPUS="${SLURM_CPUS_PER_TASK:-1}"
 
-# --- Interval preparation (COHORT mode only) ---
-# In CASE mode all of this is inherited from the model, which is the whole point of CASE mode: the
-# new samples have to be called over exactly the intervals the model was fitted on.
+# --- Interval preparation ---
+
 if [ "$CASE_MODE" = false ]; then
-  # Reproduce the bins varwolf.sh --counts made, so that the interval list lines up with the HDF5s.
-  # These two commands must stay identical to the ones in varwolf.sh.
   BINS="${CNV_DIR}/${COHORT}_bins.interval_list"
   if [[ -n "$INTERVAL_FILE" ]]; then
     echo "INFO: Preprocessing provided intervals..."
@@ -419,8 +372,6 @@ if [ "$CASE_MODE" = false ]; then
   fi
   echo "INFO: Created bins!"
 
-  # GC content per interval. FilterIntervals uses it to drop intervals that gCNV cannot model, and
-  # GermlineCNVCaller uses it to correct the coverage it sees.
   echo "INFO: Annotating intervals..."
   gatk AnnotateIntervals \
     -R "${REF}" \
@@ -439,9 +390,6 @@ if [ "$CASE_MODE" = false ]; then
     --low-count-filter-percentage-of-samples "${LOW_COUNT_PCT}" \
     -O "${CNV_DIR}/unrestricted.interval_list"
 
-  # DetermineGermlineContigPloidy refuses to run if the intervals cover a contig the priors table
-  # does not mention, so the priors table decides what gets called. Dropping the rest here turns
-  # what would be a crash several minutes in into a line of log output.
   echo "INFO: Restricting intervals to the contigs in the ploidy priors table..."
   awk '
     NR == FNR { if (FNR > 1) { keep[$1] = 1 } ; next }
@@ -451,11 +399,6 @@ if [ "$CASE_MODE" = false ]; then
     END { for (contig in dropped) { print "INFO: Dropped contig " contig > "/dev/stderr" } }
   ' "${PLOIDY_PRIORS}" "${CNV_DIR}/unrestricted.interval_list" > "${CNV_DIR}/filtered.interval_list"
 
-  # --- Scatter ---
-  # SCATTER_CONTENT is an interval count per shard, but the number of shards is what actually
-  # matters, since it sets how many GermlineCNVCaller processes run at once and how many cores each
-  # of them gets. So the requested shard count is what the flag takes, and the per shard interval
-  # count is derived from it here, rounding up so the division never leaves a stray remainder shard.
   INTERVAL_COUNT="$(grep -cv '^@' "${CNV_DIR}/filtered.interval_list" || true)"
   if [ "${INTERVAL_COUNT}" -eq 0 ]; then
     echo "Error: No intervals left after filtering." >&2
@@ -464,14 +407,11 @@ if [ "$CASE_MODE" = false ]; then
   fi
   echo "INFO: Finished filtering intervals! ${INTERVAL_COUNT} intervals remain."
 
-  SCATTER_TARGET="${SCATTERS_REQUESTED}"
-  if [ "${SCATTER_TARGET}" -gt "${INTERVAL_COUNT}" ]; then
-    echo "WARNING: Asked for ${SCATTER_TARGET} shards but there are only ${INTERVAL_COUNT} intervals."
-    SCATTER_TARGET="${INTERVAL_COUNT}"
-  fi
-  SCATTER_CONTENT=$(( (INTERVAL_COUNT + SCATTER_TARGET - 1) / SCATTER_TARGET ))
+# Scatter handling
 
-  echo "INFO: Scattering ${INTERVAL_COUNT} intervals into ${SCATTER_TARGET} shard(s) of ${SCATTER_CONTENT}..."
+  SCATTER_CONTENT=$(( INTERVAL_COUNT / SCATTERS_REQUESTED ))
+
+  echo "INFO: Scattering ${INTERVAL_COUNT} intervals into ${SCATTERS_REQUESTED} shard(s) of ${SCATTER_CONTENT}..."
   gatk IntervalListTools \
     -I "${CNV_DIR}/filtered.interval_list" \
     -O "${CNV_DIR}/interval_scatters" \
@@ -480,15 +420,10 @@ if [ "$CASE_MODE" = false ]; then
   echo "INFO: Finished scattering intervals!"
 fi
 
-# --- Collect the shards to run ---
-# The shards are read off disk rather than counted, so that the numbering always agrees with whatever
-# IntervalListTools actually produced, or with whatever the model directory actually contains.
 SCATTERS=()
-SCATTER_LISTS=()
 if [ "$CASE_MODE" = false ]; then
   for SCATTER_DIR in "${CNV_DIR}"/interval_scatters/temp_*_of_*; do
     SCATTERS+=("$(basename "${SCATTER_DIR}" | cut -d "_" -f 2)")
-    SCATTER_LISTS+=("${SCATTER_DIR}/scattered.interval_list")
   done
 else
   for SHARD_DIR in "${MODEL_DIR}"/gcnvcaller_scatters/scatter_*-model; do
@@ -499,42 +434,20 @@ else
 fi
 
 NUM_SCATTERS=${#SCATTERS[@]}
+
 if [ "$NUM_SCATTERS" -eq 0 ]; then
   echo "Error: No interval shards to call. Nothing to do." >&2
   exit 1
 fi
 
-# Every shard is a separate python process, and gcnvkernel's linear algebra grabs every core on the
-# node unless it is told otherwise. The cores are divided between the shards instead, so that the
-# shards do not spend the run fighting each other for the same CPUs.
 THREADS_PER_JOB=$(( CPUS / NUM_SCATTERS ))
 if [ "$THREADS_PER_JOB" -lt 1 ]; then
   THREADS_PER_JOB=1
 fi
 export OMP_NUM_THREADS="${THREADS_PER_JOB}"
-export MKL_NUM_THREADS="${THREADS_PER_JOB}"
-export OPENBLAS_NUM_THREADS="${THREADS_PER_JOB}"
-# Never more shards at once than there are cores, in case --scatters is set higher than the thread count.
-SHARD_JOBS="${NUM_SCATTERS}"
-if [ "$SHARD_JOBS" -gt "$CPUS" ]; then
-  SHARD_JOBS="${CPUS}"
-fi
-echo "INFO: Running ${NUM_SCATTERS} interval shard(s), ${SHARD_JOBS} at a time, with ${THREADS_PER_JOB} thread(s) each."
-
-# --- Parallel jobs ---
-# Every parallel step below writes one small bash script per job into JOB_DIR and hands the list to
-# xargs, which runs at most -P of them at once. xargs exits non-zero if any single job failed, so a
-# dead shard or sample can never be mistaken for a finished run.
-# The jobs are written to files rather than passed to xargs as command strings because each command
-# carries an -I argument per sample, and xargs refuses command lines over 128 KB, which a large cohort
-# would reach. The files also leave the exact failing command on disk to inspect or rerun by hand.
-JOB_DIR="${CNV_DIR}/jobs"
-rm -rf "${JOB_DIR}"
-mkdir -p "${JOB_DIR}"
+echo "INFO: Running ${NUM_SCATTERS} interval shard(s) with ${THREADS_PER_JOB} thread(s) each."
 
 # --- Contig Ploidy ---
-# Ploidy has to be settled before the CNV calling, because gCNV calls copy number relative to the
-# ploidy of the contig in that particular sample.
 echo "INFO: Determining contig ploidy..."
 if [ "$CASE_MODE" = false ]; then
   gatk DetermineGermlineContigPloidy \
@@ -554,56 +467,31 @@ fi
 echo "INFO: Finished determining ploidy!"
 
 # --- CNV Calling ---
-# printf %q quotes every argument, so paths with spaces or odd characters survive being written into
-# the job script and read back by bash.
+
 echo "INFO: Running GermlineCNVCaller per interval shard..."
-JOB_FILES=()
-for i in "${!SCATTERS[@]}"; do
-  SCATTER="${SCATTERS[$i]}"
-  JOB_FILE="${JOB_DIR}/gcnvcaller_scatter_${SCATTER}.sh"
-  {
-    echo "set -euo pipefail"
-    if [ "$CASE_MODE" = false ]; then
-      printf '%q ' gatk GermlineCNVCaller \
-        --run-mode COHORT \
-        -L "${SCATTER_LISTS[$i]}" \
-        --annotated-intervals "${CNV_DIR}/annotated.interval_list" \
-        -imr OVERLAPPING_ONLY \
-        "${COUNT_ARGS[@]}" \
-        -O "${CNV_DIR}/gcnvcaller_scatters" \
-        --output-prefix "scatter_${SCATTER}" \
-        --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
-    else
-      printf '%q ' gatk GermlineCNVCaller \
-        --run-mode CASE \
-        --model "${MODEL_DIR}/gcnvcaller_scatters/scatter_${SCATTER}-model" \
-        "${COUNT_ARGS[@]}" \
-        -O "${CNV_DIR}/gcnvcaller_scatters" \
-        --output-prefix "scatter_${SCATTER}" \
-        --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
-    fi
-    echo
-    printf 'echo %q\n' "INFO: Finished GermlineCNVCaller for shard ${SCATTER}!"
-  } > "${JOB_FILE}"
-  JOB_FILES+=("${JOB_FILE}")
-done
-if ! printf '%s\n' "${JOB_FILES[@]}" | xargs -d '\n' -n 1 -P "${SHARD_JOBS}" bash; then
-  echo "Error: At least one GermlineCNVCaller shard failed. The GATK error is further up in this log." >&2
-  echo "       The command for every shard is in ${JOB_DIR}/." >&2
-  exit 1
+if [ "$CASE_MODE" = false ]; then
+  printf '%s\n' "${SCATTERS[@]}" | xargs -d '\n' -I{} -P "${CPUS}" gatk GermlineCNVCaller \
+    --run-mode COHORT \
+    -L "${CNV_DIR}/interval_scatters/temp_{}_of_${NUM_SCATTERS}/scattered.interval_list" \
+    --annotated-intervals "${CNV_DIR}/annotated.interval_list" \
+    -imr OVERLAPPING_ONLY \
+    "${COUNT_ARGS[@]}" \
+    -O "${CNV_DIR}/gcnvcaller_scatters" \
+    --output-prefix "scatter_{}" \
+    --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
+else
+  printf '%s\n' "${SCATTERS[@]}" | xargs -d '\n' -I{} -P "${CPUS}" gatk GermlineCNVCaller \
+    --run-mode CASE \
+    --model "${MODEL_DIR}/gcnvcaller_scatters/scatter_{}-model" \
+    "${COUNT_ARGS[@]}" \
+    -O "${CNV_DIR}/gcnvcaller_scatters" \
+    --output-prefix "scatter_{}" \
+    --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
 fi
 echo "INFO: All interval shards finished!"
 
-# From here on every job handles a single sample and runs single threaded, so up to one job per core
-# runs at once, instead of every sample in the cohort starting together.
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-SAMPLE_JOBS="${CPUS}"
-
 # --- Per sample postprocessing ---
-# PostprocessGermlineCNVCalls stitches the shards back together one sample at a time. The model
-# shards come from wherever the model lives, the call shards are always the ones just produced.
+export OMP_NUM_THREADS=1
 if [ "$CASE_MODE" = false ]; then
   MODEL_ROOT="${CNV_DIR}"
 else
@@ -622,109 +510,57 @@ for CONTIG in "${ALLOSOMAL[@]}"; do
   ALLOSOMAL_ARGS+=("--allosomal-contig" "${CONTIG}")
 done
 
-# The sample order inside the call shards is the order the HDF5s were given in, but the names are
-# read back from the shard rather than derived from the file names, so that the VCFs are named after
-# the sample the counts actually belong to.
 SAMPLE_NAMES=()
 for i in $(seq 0 $((NUM_SAMPLES - 1))); do
   NAME_FILE="${CNV_DIR}/gcnvcaller_scatters/scatter_${SCATTERS[0]}-calls/SAMPLE_${i}/sample_name.txt"
   if [[ ! -f "$NAME_FILE" ]]; then
-    echo "Error: Expected ${NUM_SAMPLES} samples in the call shards, but ${NAME_FILE} is missing." >&2
+    echo "Error: ${NAME_FILE} is missing." >&2
     exit 1
   fi
   SAMPLE_NAMES+=("$(tr -d '\r\n' < "${NAME_FILE}")")
 done
 
-echo "INFO: Postprocessing CNV calls per sample, ${SAMPLE_JOBS} at a time..."
-JOB_FILES=()
-for i in $(seq 0 $((NUM_SAMPLES - 1))); do
+echo "INFO: Postprocessing CNV calls per sample..."
+for i in "${!SAMPLE_NAMES[@]}"; do
   SAMPLE="${SAMPLE_NAMES[$i]}"
-  JOB_FILE="${JOB_DIR}/postprocess_${SAMPLE}.sh"
-  {
-    echo "set -euo pipefail"
-    printf '%q ' gatk PostprocessGermlineCNVCalls \
-      "${MODEL_ARGS[@]}" \
-      "${CALL_ARGS[@]}" \
-      --sample-index "${i}" \
-      --output-genotyped-intervals "${OUTPUT_DIR}/vcfs/${SAMPLE}_intervals.cnv.vcf.gz" \
-      --output-genotyped-segments "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" \
-      --output-denoised-copy-ratios "${CNV_DIR}/${SAMPLE}_denoised_copy_ratios.tsv" \
-      --contig-ploidy-calls "${CNV_DIR}/ploidy-calls/" \
-      "${ALLOSOMAL_ARGS[@]}" \
-      --sequence-dictionary "${REF_DICT}"
-    echo
-    printf 'echo %q\n' "INFO: Finished postprocessing ${SAMPLE}!"
-  } > "${JOB_FILE}"
-  JOB_FILES+=("${JOB_FILE}")
-done
-if ! printf '%s\n' "${JOB_FILES[@]}" | xargs -d '\n' -n 1 -P "${SAMPLE_JOBS}" bash; then
-  echo "Error: PostprocessGermlineCNVCalls failed for at least one sample. See further up in this log." >&2
-  echo "       The command for every sample is in ${JOB_DIR}/." >&2
-  exit 1
-fi
+  printf '%s\n' \
+    --sample-index "${i}" \
+    --output-genotyped-intervals "${CNV_DIR}/${SAMPLE}_intervals.cnv.vcf.gz" \
+    --output-genotyped-segments "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" \
+    --output-denoised-copy-ratios "${CNV_DIR}/${SAMPLE}_denoised_copy_ratios.tsv"
+done | xargs -d '\n' -n 8 -P "${CPUS}" gatk PostprocessGermlineCNVCalls \
+  "${MODEL_ARGS[@]}" \
+  "${CALL_ARGS[@]}" \
+  --contig-ploidy-calls "${CNV_DIR}/ploidy-calls/" \
+  "${ALLOSOMAL_ARGS[@]}" \
+  --sequence-dictionary "${REF_DICT}"
 echo "INFO: All samples postprocessed!"
 
 # --- Filtering ---
-# Both thresholds are recorded in the FILTER column first and only then acted on, so that the tagged
-# VCF is a complete record of what was thrown away.
 echo "INFO: Filtering CNV calls..."
-JOB_FILES=()
-for SAMPLE in "${SAMPLE_NAMES[@]}"; do
-  JOB_FILE="${JOB_DIR}/filter_${SAMPLE}.sh"
-  {
-    echo "set -euo pipefail"
-    printf '%q ' gatk VariantFiltration \
-      -V "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" \
-      -filter "QUAL < ${MIN_QUAL}" --filter-name "CNVQUAL" \
-      -filter "QUAL < ${RMV_QUAL}" --filter-name "CNVRMV" \
-      -O "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz"
-    echo
-  } > "${JOB_FILE}"
-  JOB_FILES+=("${JOB_FILE}")
-done
-if ! printf '%s\n' "${JOB_FILES[@]}" | xargs -d '\n' -n 1 -P "${SAMPLE_JOBS}" bash; then
-  echo "Error: VariantFiltration failed for at least one sample. See further up in this log." >&2
-  echo "       The command for every sample is in ${JOB_DIR}/." >&2
-  exit 1
-fi
+printf '%s\n' "${SAMPLE_NAMES[@]}" | xargs -d '\n' -I{} -P "${CPUS}" gatk VariantFiltration \
+  -V "${OUTPUT_DIR}/vcfs/{}_raw.cnv.vcf.gz" \
+  -filter "QUAL < ${MIN_QUAL}" --filter-name "CNVQUAL" \
+  -filter "QUAL < ${RMV_QUAL}" --filter-name "CNVRMV" \
+  -O "${OUTPUT_DIR}/vcfs/{}_filtered.cnv.vcf.gz"
 echo "INFO: Finished filtering CNV calls!"
 
-# Drop the CNVRMV segments and the reference calls, and write SVTYPE into the INFO field, which
-# PostprocessGermlineCNVCalls declares in the header but leaves out of the records.
+# Drop the CNVRMV segments and the reference calls, and write SVTYPE into the INFO field
 echo "INFO: Writing final CNV VCFs..."
-JOB_FILES=()
 for SAMPLE in "${SAMPLE_NAMES[@]}"; do
-  JOB_FILE="${JOB_DIR}/final_vcf_${SAMPLE}.sh"
-  {
-    echo "set -euo pipefail"
-    printf '%q ' zgrep -P -v 'CNVRMV|N\t\.' "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz"
-    printf '| '
-    printf '%q ' sed 's/\tEND/\tSVTYPE=CNV;END/g'
-    printf '| '
-    printf '%q ' bgzip -o "${OUTPUT_DIR}/vcfs/${SAMPLE}.cnv.vcf.gz"
-    echo
-    printf '%q ' tabix -f "${OUTPUT_DIR}/vcfs/${SAMPLE}.cnv.vcf.gz"
-    echo
-  } > "${JOB_FILE}"
-  JOB_FILES+=("${JOB_FILE}")
+  zgrep -P -v "CNVRMV|N\t\." "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz" \
+    | sed 's/\tEND/\tSVTYPE=CNV;END/g' \
+    | bgzip -o "${OUTPUT_DIR}/vcfs/${SAMPLE}.cnv.vcf.gz"
+  tabix -f "${OUTPUT_DIR}/vcfs/${SAMPLE}.cnv.vcf.gz"
 done
-if ! printf '%s\n' "${JOB_FILES[@]}" | xargs -d '\n' -n 1 -P "${SAMPLE_JOBS}" bash; then
-  echo "Error: Writing the final CNV VCF failed for at least one sample. See further up in this log." >&2
-  echo "       The command for every sample is in ${JOB_DIR}/." >&2
-  exit 1
-fi
 
 # --- Cleanup ---
-# Only the intermediates this script created per sample are removed, and by name rather than by
-# glob, so nothing another pipeline left in the vcfs directory is ever caught. The per interval
-# genotypes stay, and so does everything under the cnv directory, which is the reusable model.
 if [ "$KEEP_INTERMEDIATES" = false ]; then
   for SAMPLE in "${SAMPLE_NAMES[@]}"; do
     rm -f "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz.tbi" \
       "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz" "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz.tbi"
   done
   rm -f "${CNV_DIR}/unrestricted.interval_list"
-  rm -rf "${JOB_DIR}"
 fi
 
 echo "SUCCESS"
