@@ -87,7 +87,7 @@ the MarkDuplicates step.
 Useful flags: `--skip-bqsr` (faster run and smaller bam, not GATK best practice), `--legacy-bwa` (falls
 back to original `bwa` when no bwa-mem2 index exists).
 
-Defaults: 64 cpus, 256 GB, 1 day. Minimum 8 threads.
+Defaults: 64 cpus, 256 GB. Minimum 8 threads.
 
 ### varwolf.sh — BAM to germline VCF
 
@@ -102,7 +102,7 @@ Useful flags: `--gvcf` (emit a per-sample GVCF for `cohorc.sh`, plus a single-sa
 `GenotypeGVCFs`), `--counts` (a binned read-count HDF5 for CNV calling), `-L` (target BED for
 exome/panel), `--singlethread` (drop per-chromosome parallelism when running many samples at once).
 
-Defaults: 32 cpus, 128 GB, 3 days. Both `-L` and `--singlethread` disable the per-chromosome fan-out,
+Defaults: 32 cpus, 128 GB. Both `-L` and `--singlethread` disable the per-chromosome fan-out,
 so submit those with `-c 2` to avoid reserving cores you will not use.
 
 ### sombie.sh — tumor BAM to somatic VCF
@@ -121,7 +121,7 @@ irreversibly: `--min-depth`, `--min-alt-reads`, `--min-vaf`, and `--blacklist-fi
 blacklist). Panel of normals, germline resource, and contamination resource default to the GATK
 hg38 bundles and can be overridden with `--custom-pon`, `--custom-germline`, `--custom-common`.
 
-Defaults: 32 cpus, 128 GB, 3 days.
+Defaults: 32 cpus, 128 GB.
 
 Note: `FilterAlignmentArtifacts` is present but commented out — it misbehaved and was removed
 deliberately. Leave it that way unless you have re-tested it.
@@ -138,12 +138,10 @@ on the command line.
 Two VCFs are kept:
 
 - `<cohort>.vcf.gz` — all sites, with ExcessHet and VQSR results recorded in FILTER.
-- `<cohort>_<filters>.vcf.gz` — PASS sites only, genotype filtered and normalized. **The suffix is
-  built from the thresholds that were actually applied**, so the filename can never drift away from
-  what the file contains.
+- `<cohort>_<filters>.vcf.gz` — PASS sites only, genotype filtered and normalized. The suffix is
+  built from the thresholds that were actually applied,
 
-VQSR needs a reasonably large training set, so cohorts under 10 samples are rejected. Trio calling
-and pedigree-based genotype refinement are out of scope.
+VQSR needs a reasonably large training set, so cohorts under 10 samples are rejected.
 
 Useful flags: `--snp-ts` / `--indel-ts` (truth sensitivity, default 99.5 / 99.0), `--max-gaussians`
 (lower it if the INDEL model fails to converge on a small cohort), `--no-excess-het` (the default
@@ -154,7 +152,7 @@ existing GenomicsDB workspaces instead of erroring out).
 GenomicsDB workspaces under `<out_dir>/gdbs/<cohort>/` are never deleted, so `--update-gdb` can add
 samples later without rebuilding from scratch.
 
-Defaults: 64 cpus, 500 GB, 3 days.
+Defaults: 64 cpus, 500 GB.
 
 ### copycat.sh — read counts to germline CNV calls
 
@@ -179,7 +177,7 @@ Outputs:
 
 - `<out_dir>/vcfs/<sample>.cnv.vcf.gz` — final calls, indexed. Segments below `--rmv-qual` (default
   30) and reference-copy segments are dropped, segments below `--min-qual` (default 100) are tagged
-  `CNVQUAL`, and `SVTYPE=CNV` is filled in.
+  `CNVQUAL`.
 - `<out_dir>/gcnv/<cohort>/` — the ploidy and gCNV models, shard calls, per-interval genotypes and
   denoised copy ratios. This is the `-M` directory for later CASE runs. A CASE run writes the same
   files into `<out_dir>/gcnv/<sample>/`.
@@ -202,7 +200,7 @@ it, so a whole project can share one output root:
 │   └── metrics/       #   bcftools stats, plot-vcfstats, contamination tables
 ├── counts/            # varwolf.sh --counts
 ├── gdbs/              # cohorc.sh GenomicsDB workspaces (never auto-deleted)
-└── gcnv/              # copycat.sh gCNV models and working files (never auto-deleted)
+└── cnv/               # copycat.sh gCNV models and working files (never auto-deleted)
 ```
 
 **Intermediates are cleaned up.** Each script removes its own per-chromosome shards and staging files
