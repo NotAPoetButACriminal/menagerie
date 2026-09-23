@@ -26,7 +26,7 @@ The script runs in one of two modes:
 
   CASE mode ( when -M <dir> is provided) calls CNVs in new samples against a model built by an earlier cohort run.
   This allows CNVs to be called for single samples, as long as they were sequenced and processed the same way as the cohort.
-  Provide the <out_dir>/cnv/<cohort> directory that the earlier run produced.
+  Provide the <out_dir>/gcnv/<cohort> directory that the earlier run produced.
 
 All samples must be counted against an identical interval list. The simplest way to guarantee that
 is to run varwolf.sh --counts with the same -L for every sample, then pass that same -L here.
@@ -51,7 +51,7 @@ Cohort mode:
                  Giving it selects COHORT mode, which is the default.
 
 Case mode:
-  -M <dir>       The <out_dir>/cnv/<cohort> directory of an earlier COHORT run for calling in CASE mode.
+  -M <dir>       The <out_dir>/gcnv/<cohort> directory of an earlier COHORT run for calling in CASE mode.
                  Only samples sequenced and processed the exact same way as a previous cohort
                  can be run in case mode against that cohort's model.
                  Giving it selects CASE mode, and the work directory is named after the sample, taken from
@@ -83,11 +83,11 @@ Optional flags:
 Output:
   <out_dir>/vcfs/<sample>.cnv.vcf.gz            Final per sample CNV calls, indexed, with SVTYPE=CNV
                                                 filled in so downstream SV tools accept them.
-  <out_dir>/cnv/<cohort>/                       Ploidy and gCNV models, scattered calls, denoised copy
+  <out_dir>/gcnv/<cohort>/                      Ploidy and gCNV models, scattered calls, denoised copy
                                                 ratios and per interval genotypes (<sample>_intervals.cnv.vcf.gz).
                                                 Never deleted unless --overwrite is given, so it can be
                                                 reused as the -M directory for later CASE runs.
-                                                A CASE run writes the same files into <out_dir>/cnv/<sample>/.
+                                                A CASE run writes the same files into <out_dir>/gcnv/<sample>/.
 
 EOF
   exit 1
@@ -205,12 +205,12 @@ if [[ -n "$MODEL_DIR" ]]; then
   if [[ ! -d "$MODEL_DIR" ]]; then echo "Error: Model directory not found: ${MODEL_DIR}" >&2; exit 1; fi
   if [[ ! -d "${MODEL_DIR}/ploidy-model" ]]; then
     echo "Error: No ploidy-model directory inside ${MODEL_DIR}." >&2
-    echo "       -M expects the <out_dir>/cnv/<cohort> directory of an earlier COHORT run." >&2
+    echo "       -M expects the <out_dir>/gcnv/<cohort> directory of an earlier COHORT run." >&2
     exit 1
   fi
   if ! compgen -G "${MODEL_DIR}/gcnvcaller_scatters/scatter_*-model" >/dev/null; then
     echo "Error: No scatter model shards inside ${MODEL_DIR}/gcnvcaller_scatters/." >&2
-    echo "       -M expects the <out_dir>/cnv/<cohort> directory of an earlier COHORT run." >&2
+    echo "       -M expects the <out_dir>/gcnv/<cohort> directory of an earlier COHORT run." >&2
     exit 1
   fi
   if [[ -n "$INTERVAL_FILE" ]]; then
@@ -277,35 +277,35 @@ esac
 # --- Start script ---
 
 if [ "$CASE_MODE" = false ]; then
-  CNV_DIR="${OUTPUT_DIR}/cnv/${COHORT}"
+  GCNV_DIR="${OUTPUT_DIR}/gcnv/${COHORT}"
 else
-  CNV_DIR="${OUTPUT_DIR}/cnv/${SAMPLE}"
+  GCNV_DIR="${OUTPUT_DIR}/gcnv/${SAMPLE}"
 fi
 
 # Check earlier run overwriting
-if [ "$CASE_MODE" = true ] && [ "$(realpath -m "${CNV_DIR}")" = "$(realpath -m "${MODEL_DIR}")" ]; then
-  echo "Error: This CASE run would work in ${CNV_DIR}, which is the -M model directory itself." >&2
+if [ "$CASE_MODE" = true ] && [ "$(realpath -m "${GCNV_DIR}")" = "$(realpath -m "${MODEL_DIR}")" ]; then
+  echo "Error: This CASE run would work in ${GCNV_DIR}, which is the -M model directory itself." >&2
   echo "       Use a different -O, or a sample whose name differs from the cohort name." >&2
   exit 1
 fi
-if [ -d "${CNV_DIR}/ploidy-model" ] || [ -d "${CNV_DIR}/ploidy-calls" ] \
-  || [ -d "${CNV_DIR}/interval_scatters" ] || [ -d "${CNV_DIR}/gcnvcaller_scatters" ]; then
+if [ -d "${GCNV_DIR}/ploidy-model" ] || [ -d "${GCNV_DIR}/ploidy-calls" ] \
+  || [ -d "${GCNV_DIR}/interval_scatters" ] || [ -d "${GCNV_DIR}/gcnvcaller_scatters" ]; then
   if [ "$OVERWRITE" = false ]; then
-    echo "Error: ${CNV_DIR} already holds results from an earlier run." >&2
+    echo "Error: ${GCNV_DIR} already holds results from an earlier run." >&2
     echo "       Re-run with --overwrite to delete them and start over, or choose a different name." >&2
     exit 1
   fi
-  echo "WARNING: --overwrite given. Deleting the earlier run in ${CNV_DIR}..."
-  rm -rf "${CNV_DIR}/ploidy-model" "${CNV_DIR}/ploidy-calls" \
-    "${CNV_DIR}/interval_scatters" "${CNV_DIR}/gcnvcaller_scatters"
-  rm -f "${CNV_DIR}/${COHORT}_bins.interval_list" "${CNV_DIR}/annotated.interval_list" \
-    "${CNV_DIR}/unrestricted.interval_list" "${CNV_DIR}/filtered.interval_list" \
-    "${CNV_DIR}"/*_denoised_copy_ratios.tsv \
-    "${CNV_DIR}"/*_intervals.cnv.vcf.gz "${CNV_DIR}"/*_intervals.cnv.vcf.gz.tbi
+  echo "WARNING: --overwrite given. Deleting the earlier run in ${GCNV_DIR}..."
+  rm -rf "${GCNV_DIR}/ploidy-model" "${GCNV_DIR}/ploidy-calls" \
+    "${GCNV_DIR}/interval_scatters" "${GCNV_DIR}/gcnvcaller_scatters"
+  rm -f "${GCNV_DIR}/${COHORT}_bins.interval_list" "${GCNV_DIR}/annotated.interval_list" \
+    "${GCNV_DIR}/unrestricted.interval_list" "${GCNV_DIR}/filtered.interval_list" \
+    "${GCNV_DIR}"/*_denoised_copy_ratios.tsv \
+    "${GCNV_DIR}"/*_intervals.cnv.vcf.gz "${GCNV_DIR}"/*_intervals.cnv.vcf.gz.tbi
 fi
 
 mkdir -p "${OUTPUT_DIR}/vcfs"
-mkdir -p "${CNV_DIR}"
+mkdir -p "${GCNV_DIR}"
 
 # Initiate conda environment
 set +u
@@ -319,7 +319,7 @@ if [[ -n "$CUSTOM_PAR" ]]; then
   PAR_BED="$CUSTOM_PAR"
   echo "INFO: Using custom PAR intervals from ${PAR_BED}."
 else
-  PAR_BED="${CNV_DIR}/par.bed"
+  PAR_BED="${GCNV_DIR}/par.bed"
   printf 'chrX\t10001\t2781479\nchrX\t155701383\t156030895\nchrY\t10001\t2781479\nchrY\t56887903\t57217415\n' \
     > "${PAR_BED}"
   echo "INFO: Wrote ${GENOME_BUILD} PAR intervals to ${PAR_BED}."
@@ -329,7 +329,7 @@ if [[ -n "$PLOIDY_PRIORS" ]]; then
   if [[ ! -f "$PLOIDY_PRIORS" ]]; then echo "Error: Ploidy priors file not found: ${PLOIDY_PRIORS}" >&2; exit 1; fi
   echo "INFO: Using custom contig ploidy priors from ${PLOIDY_PRIORS}."
 else
-  PLOIDY_PRIORS="${CNV_DIR}/contig_ploidy_priors.tsv"
+  PLOIDY_PRIORS="${GCNV_DIR}/contig_ploidy_priors.tsv"
   {
     printf 'CONTIG_NAME\tPLOIDY_PRIOR_0\tPLOIDY_PRIOR_1\tPLOIDY_PRIOR_2\tPLOIDY_PRIOR_3\n'
     for CHR in chr{1..22}; do
@@ -352,7 +352,7 @@ CPUS="${SLURM_CPUS_PER_TASK:-1}"
 # --- Interval preparation ---
 
 if [ "$CASE_MODE" = false ]; then
-  BINS="${CNV_DIR}/${COHORT}_bins.interval_list"
+  BINS="${GCNV_DIR}/${COHORT}_bins.interval_list"
   if [[ -n "$INTERVAL_FILE" ]]; then
     echo "INFO: Preprocessing provided intervals..."
     gatk PreprocessIntervals \
@@ -377,18 +377,18 @@ if [ "$CASE_MODE" = false ]; then
     -R "${REF}" \
     -L "${BINS}" \
     -imr OVERLAPPING_ONLY \
-    -O "${CNV_DIR}/annotated.interval_list"
+    -O "${GCNV_DIR}/annotated.interval_list"
   echo "INFO: Finished annotating intervals!"
 
   echo "INFO: Filtering intervals..."
   gatk FilterIntervals \
     -L "${BINS}" \
     -XL "${PAR_BED}" \
-    --annotated-intervals "${CNV_DIR}/annotated.interval_list" \
+    --annotated-intervals "${GCNV_DIR}/annotated.interval_list" \
     -imr OVERLAPPING_ONLY \
     "${COUNT_ARGS[@]}" \
     --low-count-filter-percentage-of-samples "${LOW_COUNT_PCT}" \
-    -O "${CNV_DIR}/unrestricted.interval_list"
+    -O "${GCNV_DIR}/unrestricted.interval_list"
 
   echo "INFO: Restricting intervals to the contigs in the ploidy priors table..."
   awk '
@@ -397,9 +397,9 @@ if [ "$CASE_MODE" = false ]; then
     ($1 in keep) { print ; next }
     { dropped[$1] = 1 }
     END { for (contig in dropped) { print "INFO: Dropped contig " contig > "/dev/stderr" } }
-  ' "${PLOIDY_PRIORS}" "${CNV_DIR}/unrestricted.interval_list" > "${CNV_DIR}/filtered.interval_list"
+  ' "${PLOIDY_PRIORS}" "${GCNV_DIR}/unrestricted.interval_list" > "${GCNV_DIR}/filtered.interval_list"
 
-  INTERVAL_COUNT="$(grep -cv '^@' "${CNV_DIR}/filtered.interval_list" || true)"
+  INTERVAL_COUNT="$(grep -cv '^@' "${GCNV_DIR}/filtered.interval_list" || true)"
   if [ "${INTERVAL_COUNT}" -eq 0 ]; then
     echo "Error: No intervals left after filtering." >&2
     echo "       The contig names in ${PLOIDY_PRIORS} most likely do not match the reference." >&2
@@ -413,8 +413,8 @@ if [ "$CASE_MODE" = false ]; then
 
   echo "INFO: Scattering ${INTERVAL_COUNT} intervals into ${SCATTERS_REQUESTED} shard(s) of ${SCATTER_CONTENT}..."
   gatk IntervalListTools \
-    -I "${CNV_DIR}/filtered.interval_list" \
-    -O "${CNV_DIR}/interval_scatters" \
+    -I "${GCNV_DIR}/filtered.interval_list" \
+    -O "${GCNV_DIR}/interval_scatters" \
     --SUBDIVISION_MODE INTERVAL_COUNT \
     --SCATTER_CONTENT "${SCATTER_CONTENT}"
   echo "INFO: Finished scattering intervals!"
@@ -422,7 +422,7 @@ fi
 
 SCATTERS=()
 if [ "$CASE_MODE" = false ]; then
-  for SCATTER_DIR in "${CNV_DIR}"/interval_scatters/temp_*_of_*; do
+  for SCATTER_DIR in "${GCNV_DIR}"/interval_scatters/temp_*_of_*; do
     SCATTERS+=("$(basename "${SCATTER_DIR}" | cut -d "_" -f 2)")
   done
 else
@@ -451,17 +451,17 @@ echo "INFO: Running ${NUM_SCATTERS} interval shard(s) with ${THREADS_PER_JOB} th
 echo "INFO: Determining contig ploidy..."
 if [ "$CASE_MODE" = false ]; then
   gatk DetermineGermlineContigPloidy \
-    -L "${CNV_DIR}/filtered.interval_list" \
+    -L "${GCNV_DIR}/filtered.interval_list" \
     -imr OVERLAPPING_ONLY \
     "${COUNT_ARGS[@]}" \
-    -O "${CNV_DIR}/" \
+    -O "${GCNV_DIR}/" \
     --output-prefix ploidy \
     --contig-ploidy-priors "${PLOIDY_PRIORS}"
 else
   gatk DetermineGermlineContigPloidy \
     --model "${MODEL_DIR}/ploidy-model/" \
     "${COUNT_ARGS[@]}" \
-    -O "${CNV_DIR}/" \
+    -O "${GCNV_DIR}/" \
     --output-prefix ploidy
 fi
 echo "INFO: Finished determining ploidy!"
@@ -472,28 +472,28 @@ echo "INFO: Running GermlineCNVCaller per interval shard..."
 if [ "$CASE_MODE" = false ]; then
   printf '%s\n' "${SCATTERS[@]}" | xargs -d '\n' -I{} -P "${CPUS}" gatk GermlineCNVCaller \
     --run-mode COHORT \
-    -L "${CNV_DIR}/interval_scatters/temp_{}_of_${NUM_SCATTERS}/scattered.interval_list" \
-    --annotated-intervals "${CNV_DIR}/annotated.interval_list" \
+    -L "${GCNV_DIR}/interval_scatters/temp_{}_of_${NUM_SCATTERS}/scattered.interval_list" \
+    --annotated-intervals "${GCNV_DIR}/annotated.interval_list" \
     -imr OVERLAPPING_ONLY \
     "${COUNT_ARGS[@]}" \
-    -O "${CNV_DIR}/gcnvcaller_scatters" \
+    -O "${GCNV_DIR}/gcnvcaller_scatters" \
     --output-prefix "scatter_{}" \
-    --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
+    --contig-ploidy-calls "${GCNV_DIR}/ploidy-calls"
 else
   printf '%s\n' "${SCATTERS[@]}" | xargs -d '\n' -I{} -P "${CPUS}" gatk GermlineCNVCaller \
     --run-mode CASE \
     --model "${MODEL_DIR}/gcnvcaller_scatters/scatter_{}-model" \
     "${COUNT_ARGS[@]}" \
-    -O "${CNV_DIR}/gcnvcaller_scatters" \
+    -O "${GCNV_DIR}/gcnvcaller_scatters" \
     --output-prefix "scatter_{}" \
-    --contig-ploidy-calls "${CNV_DIR}/ploidy-calls"
+    --contig-ploidy-calls "${GCNV_DIR}/ploidy-calls"
 fi
 echo "INFO: All interval shards finished!"
 
 # --- Per sample postprocessing ---
 export OMP_NUM_THREADS=1
 if [ "$CASE_MODE" = false ]; then
-  MODEL_ROOT="${CNV_DIR}"
+  MODEL_ROOT="${GCNV_DIR}"
 else
   MODEL_ROOT="${MODEL_DIR}"
 fi
@@ -502,7 +502,7 @@ MODEL_ARGS=()
 CALL_ARGS=()
 for SCATTER in "${SCATTERS[@]}"; do
   MODEL_ARGS+=("--model-shard-path" "${MODEL_ROOT}/gcnvcaller_scatters/scatter_${SCATTER}-model")
-  CALL_ARGS+=("--calls-shard-path" "${CNV_DIR}/gcnvcaller_scatters/scatter_${SCATTER}-calls")
+  CALL_ARGS+=("--calls-shard-path" "${GCNV_DIR}/gcnvcaller_scatters/scatter_${SCATTER}-calls")
 done
 
 ALLOSOMAL_ARGS=()
@@ -512,7 +512,7 @@ done
 
 SAMPLE_NAMES=()
 for i in $(seq 0 $((NUM_SAMPLES - 1))); do
-  NAME_FILE="${CNV_DIR}/gcnvcaller_scatters/scatter_${SCATTERS[0]}-calls/SAMPLE_${i}/sample_name.txt"
+  NAME_FILE="${GCNV_DIR}/gcnvcaller_scatters/scatter_${SCATTERS[0]}-calls/SAMPLE_${i}/sample_name.txt"
   if [[ ! -f "$NAME_FILE" ]]; then
     echo "Error: ${NAME_FILE} is missing." >&2
     exit 1
@@ -525,13 +525,13 @@ for i in "${!SAMPLE_NAMES[@]}"; do
   SAMPLE="${SAMPLE_NAMES[$i]}"
   printf '%s\n' \
     --sample-index "${i}" \
-    --output-genotyped-intervals "${CNV_DIR}/${SAMPLE}_intervals.cnv.vcf.gz" \
+    --output-genotyped-intervals "${GCNV_DIR}/${SAMPLE}_intervals.cnv.vcf.gz" \
     --output-genotyped-segments "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" \
-    --output-denoised-copy-ratios "${CNV_DIR}/${SAMPLE}_denoised_copy_ratios.tsv"
+    --output-denoised-copy-ratios "${GCNV_DIR}/${SAMPLE}_denoised_copy_ratios.tsv"
 done | xargs -d '\n' -n 8 -P "${CPUS}" gatk PostprocessGermlineCNVCalls \
   "${MODEL_ARGS[@]}" \
   "${CALL_ARGS[@]}" \
-  --contig-ploidy-calls "${CNV_DIR}/ploidy-calls/" \
+  --contig-ploidy-calls "${GCNV_DIR}/ploidy-calls/" \
   "${ALLOSOMAL_ARGS[@]}" \
   --sequence-dictionary "${REF_DICT}"
 echo "INFO: All samples postprocessed!"
@@ -560,7 +560,7 @@ if [ "$KEEP_INTERMEDIATES" = false ]; then
     rm -f "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz" "${OUTPUT_DIR}/vcfs/${SAMPLE}_raw.cnv.vcf.gz.tbi" \
       "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz" "${OUTPUT_DIR}/vcfs/${SAMPLE}_filtered.cnv.vcf.gz.tbi"
   done
-  rm -f "${CNV_DIR}/unrestricted.interval_list"
+  rm -f "${GCNV_DIR}/unrestricted.interval_list"
 fi
 
 echo "SUCCESS"

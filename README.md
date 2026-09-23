@@ -4,9 +4,6 @@ A small bestiary of GATK-based sequencing pipelines for SLURM clusters.
 
 Each script is a single self-contained stage of a short-read DNA analysis workflow, written as an `sbatch` job. They chain together — the output of one is an input to the next — but each can be run on its own, and each explains itself if you run it with no arguments.
 
-The names follow one joke: a monster with its first syllable replaced by the file format or data
-type it deals with.
-
 | Script | Takes | Produces |
 |---|---|---|
 | [`bampire.sh`](bampire.sh) | FASTQ | analysis-ready BAM |
@@ -68,7 +65,7 @@ sbatch -o logs/COHORT_%x_%A.log copycat.sh \
 sbatch -o logs/SAMPLE_%x_%A.log copycat.sh \
     -I .../counts/SAMPLE.hdf5 \
     -O /path/to/out \
-    -M /path/to/out/cnv/COHORT \
+    -M /path/to/out/gcnv/COHORT \
     -R hg38.fasta
 ```
 
@@ -87,7 +84,7 @@ read), so multi-lane samples merge correctly. Pass `--custom-rg` for non-Illumin
 lanes go in as a CSV file, one `R1,R2` pair per line; the lanes are aligned separately and merged at
 the MarkDuplicates step.
 
-Useful flags: `--skip-bqsr` (much faster and smaller, not GATK best practice), `--legacy-bwa` (falls
+Useful flags: `--skip-bqsr` (faster run and smaller bam, not GATK best practice), `--legacy-bwa` (falls
 back to original `bwa` when no bwa-mem2 index exists).
 
 Defaults: 64 cpus, 256 GB, 1 day. Minimum 8 threads.
@@ -174,7 +171,7 @@ Two modes:
 
 - **COHORT** (`-C <cohort>`) fits a new gCNV model to the batch and calls CNVs in the same samples.
   At least 10 samples, all sequenced and processed the same way.
-- **CASE** (`-M <out_dir>/cnv/<cohort>`) calls a single new sample against the model from an earlier
+- **CASE** (`-M <out_dir>/gcnv/<cohort>`) calls a single new sample against the model from an earlier
   COHORT run, so one-off samples can be called without refitting. Intervals and shards come from the
   model, so `-L` and `--scatters` do not apply.
 
@@ -183,9 +180,9 @@ Outputs:
 - `<out_dir>/vcfs/<sample>.cnv.vcf.gz` — final calls, indexed. Segments below `--rmv-qual` (default
   30) and reference-copy segments are dropped, segments below `--min-qual` (default 100) are tagged
   `CNVQUAL`, and `SVTYPE=CNV` is filled in.
-- `<out_dir>/cnv/<cohort>/` — the ploidy and gCNV models, shard calls, per-interval genotypes and
+- `<out_dir>/gcnv/<cohort>/` — the ploidy and gCNV models, shard calls, per-interval genotypes and
   denoised copy ratios. This is the `-M` directory for later CASE runs. A CASE run writes the same
-  files into `<out_dir>/cnv/<sample>/`.
+  files into `<out_dir>/gcnv/<sample>/`.
 
 Useful flags: `--scatters` (number of interval shards run side by side, default 10), `--low-count-pct`
 (`FilterIntervals` low-count cutoff, default 65), `--overwrite` (see below), `--keep-intermediates`.
@@ -205,7 +202,7 @@ it, so a whole project can share one output root:
 │   └── metrics/       #   bcftools stats, plot-vcfstats, contamination tables
 ├── counts/            # varwolf.sh --counts
 ├── gdbs/              # cohorc.sh GenomicsDB workspaces (never auto-deleted)
-└── cnv/               # copycat.sh gCNV models and working files (never auto-deleted)
+└── gcnv/              # copycat.sh gCNV models and working files (never auto-deleted)
 ```
 
 **Intermediates are cleaned up.** Each script removes its own per-chromosome shards and staging files
